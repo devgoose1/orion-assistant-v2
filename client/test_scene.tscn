@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://rw5t7gr3uil5"]
 
 [ext_resource type="Script" uid="uid://c5aho41r0aly" path="res://test_scene.gd" id="1_uhqqe"]
-[ext_resource type="Script" uid="uid://cgf5jv2840vqu" path="res://websocket.gd" id="2_ia1lp"]
+[ext_resource type="Script" uid="uid://b0o4rc062ehmg" path="res://websocket.gd" id="2_ia1lp"]
 
 [node name="test_scene" type="Node" unique_id=532332163]
 script = ExtResource("1_uhqqe")

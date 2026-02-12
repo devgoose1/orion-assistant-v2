@@ -1,0 +1,95 @@
+[gd_scene format=3 uid="uid://c4uhj285yjy55"]
+
+[ext_resource type="Script" uid="uid://c1voalfwgo4kc" path="res://main_ui.gd" id="1_main_ui"]
+
+[node name="MainUI" type="Control" unique_id=577869770]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_main_ui")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="." unique_id=127896072]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="StatusBar" type="PanelContainer" parent="VBoxContainer" unique_id=1682065622]
+custom_minimum_size = Vector2(0, 30)
+layout_mode = 2
+
+[node name="StatusBarMargin" type="MarginContainer" parent="VBoxContainer/StatusBar" unique_id=490062891]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 5
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 5
+
+[node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer/StatusBar/StatusBarMargin" unique_id=1581869890]
+layout_mode = 2
+
+[node name="ConnectionIndicator" type="ColorRect" parent="VBoxContainer/StatusBar/StatusBarMargin/HBoxContainer" unique_id=39265029]
+custom_minimum_size = Vector2(12, 12)
+layout_mode = 2
+color = Color(1, 0, 0, 1)
+
+[node name="StatusLabel" type="Label" parent="VBoxContainer/StatusBar/StatusBarMargin/HBoxContainer" unique_id=722003588]
+layout_mode = 2
+text = "Disconnected"
+
+[node name="Spacer" type="Control" parent="VBoxContainer/StatusBar/StatusBarMargin/HBoxContainer" unique_id=831465850]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="DeviceIDLabel" type="Label" parent="VBoxContainer/StatusBar/StatusBarMargin/HBoxContainer" unique_id=1801119374]
+layout_mode = 2
+text = "Device: [loading...]"
+
+[node name="ChatContainer" type="PanelContainer" parent="VBoxContainer" unique_id=330571173]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="MarginContainer" type="MarginContainer" parent="VBoxContainer/ChatContainer" unique_id=1805968912]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="ScrollContainer" type="ScrollContainer" parent="VBoxContainer/ChatContainer/MarginContainer" unique_id=1847833568]
+layout_mode = 2
+follow_focus = true
+
+[node name="ChatContent" type="VBoxContainer" parent="VBoxContainer/ChatContainer/MarginContainer/ScrollContainer" unique_id=154377044]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="InputContainer" type="PanelContainer" parent="VBoxContainer" unique_id=1385273948]
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 2
+
+[node name="InputMargin" type="MarginContainer" parent="VBoxContainer/InputContainer" unique_id=1732575068]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer/InputContainer/InputMargin" unique_id=400612590]
+layout_mode = 2
+
+[node name="InputField" type="LineEdit" parent="VBoxContainer/InputContainer/InputMargin/HBoxContainer" unique_id=582024442]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Type your message here..."
+
+[node name="SendButton" type="Button" parent="VBoxContainer/InputContainer/InputMargin/HBoxContainer" unique_id=2077509716]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Send"

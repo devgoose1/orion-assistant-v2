@@ -11,8 +11,13 @@ config_version=5
 [application]
 
 config/name="Orion Assistant V2 Client"
+run/main_scene="res://main_ui.tscn"
 config/features=PackedStringArray("4.6", "GL Compatibility")
 config/icon="res://icon.svg"
+
+[autoload]
+
+WebSocket="*res://websocket.gd"
 
 [physics]
 

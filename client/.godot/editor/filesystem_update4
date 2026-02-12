@@ -2,3 +2,5 @@ res://websocket.gd
 res://test_scene.gd
 res://websocket.tscn
 res://test_scene.tscn
+res://main_ui.gd
+res://main_ui.tscn

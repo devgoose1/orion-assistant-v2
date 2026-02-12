@@ -3,15 +3,31 @@ extends Node
 var ws_client: WebSocketPeer = WebSocketPeer.new()
 var BACKEND_URL: String = "ws://localhost:8765/ws"
 var connected_to_backend: bool = false
+var registered: bool = false
 var current_response: String = ""
+var device_id: String = ""
+var permissions: Dictionary = {}
 
 signal llm_response_received(response: String)
 signal llm_chunk_received(chunk: String)
 signal llm_response_complete(full_response: String)
+signal device_registered(perms: Dictionary)
 
 func _ready() -> void:
+	# Generate unique device ID
+	device_id = _generate_device_id()
+	print("Device ID: ", device_id)
+	
 	ws_client.connect_to_url(BACKEND_URL)
 	print("WebSocket initialiseren...")
+	
+	# Setup heartbeat timer
+	var heartbeat_timer = Timer.new()
+	heartbeat_timer.wait_time = 30.0  # Every 30 seconds
+	heartbeat_timer.timeout.connect(send_heartbeat)
+	heartbeat_timer.autostart = true
+	add_child(heartbeat_timer)
+
 
 func _process(_delta: float) -> void:
 	ws_client.poll()
@@ -20,10 +36,13 @@ func _process(_delta: float) -> void:
 	var state = ws_client.get_ready_state()
 	if state == WebSocketPeer.STATE_OPEN and not connected_to_backend:
 		connected_to_backend = true
-		print("✓ Verbonden met backend!")
+		print("Verbonden met backend!")
+		# Send device registration
+		_register_device()
 	elif state == WebSocketPeer.STATE_CLOSED and connected_to_backend:
 		connected_to_backend = false
-		print("✗ Verbroken van backend!")
+		registered = false
+		print("Verbroken van backend!")
 	
 	# Ontvang berichten van server
 	if ws_client.get_ready_state() == WebSocketPeer.STATE_OPEN:
@@ -41,6 +60,17 @@ func _handle_server_message(message: Dictionary) -> void:
 		return
 		
 	match message.get("type", ""):
+		"device_registered":
+			registered = true
+			permissions = message.get("permissions", {})
+			print("Device geregistreerd!")
+			print("  Allowed tools: ", permissions.get("allowed_tools", []))
+			print("  Allowed paths: ", permissions.get("allowed_paths", []))
+			device_registered.emit(permissions)
+		
+		"heartbeat_ack":
+			pass  # Heartbeat acknowledged
+		
 		"llm_response":
 			# Niet-streaming response
 			var response = message.get("response", "")
@@ -76,7 +106,7 @@ func ask_llm(prompt: String, model: String = "mistral", stream: bool = true) -> 
 	Als stream=false: ontvangt volledige response in één keer
 	"""
 	if not connected_to_backend:
-		print("✗ Fout: Niet verbonden met backend!")
+		print("Fout: Niet verbonden met backend!")
 		print("  Wacht tot verbonden te zijn")
 		return
 	
@@ -91,3 +121,50 @@ func ask_llm(prompt: String, model: String = "mistral", stream: bool = true) -> 
 	
 	ws_client.send_text(JSON.stringify(request))
 	print("LLM request verzonden (stream=%s): %s" % [stream, prompt])
+
+func _register_device() -> void:
+	"""
+	Registreert dit device bij de backend.
+	"""
+	var device_info = {
+		"type": "device_register",
+		"device_id": device_id,
+		"hostname": OS.get_name() + "_" + OS.get_model_name(),
+		"os_type": OS.get_name(),
+		"capabilities": {
+			"screen_width": DisplayServer.screen_get_size().x,
+			"screen_height": DisplayServer.screen_get_size().y,
+			"processor_name": OS.get_processor_name(),
+			"processor_count": OS.get_processor_count(),
+		},
+		"metadata": {
+			"godot_version": Engine.get_version_info()["string"],
+			"locale": OS.get_locale(),
+		}
+	}
+	
+	ws_client.send_text(JSON.stringify(device_info))
+	print("Device registratie verzonden...")
+
+func _generate_device_id() -> String:
+	"""
+	Genereert een unieke device ID. In productie zou dit persistent opgeslagen worden.
+	"""
+	# Simple ID based on system properties
+	var id_base = OS.get_name() + "_" + OS.get_model_name() + "_" + str(OS.get_unique_id())
+	# Convert to simple hash
+	return id_base.sha256_text().substr(0, 16)
+
+func send_heartbeat() -> void:
+	"""
+	Stuur heartbeat naar backend om verbinding actief te houden.
+	"""
+	if not connected_to_backend or not registered:
+		return
+	
+	var heartbeat = {
+		"type": "device_heartbeat",
+		"device_id": device_id
+	}
+	
+	ws_client.send_text(JSON.stringify(heartbeat))

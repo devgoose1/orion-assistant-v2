@@ -6,11 +6,37 @@ import os
 from typing import Optional
 from dotenv import load_dotenv
 from ollama import Client
+from datetime import datetime
+
+# Database imports
+from database import init_db, SessionLocal
+from services.device_service import (
+    create_device, get_device, update_heartbeat, 
+    check_device_permission, check_path_allowed
+)
+from services.tool_execution_service import log_tool_execution
+
+# Tool system imports
+from tools.router import get_router
+from tools.registry import get_registry
 
 # Load environment variables from .env file
 load_dotenv()
 
 app = FastAPI()
+
+# Initialize database and tools on startup
+@app.on_event("startup")
+async def startup_event():
+    init_db()
+    # Initialize tool registry
+    registry = get_registry()
+    print(f"✓ Tool registry initialized with {len(registry.list_all())} tools")
+    print("✓ Application started")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    print("✓ Application shutdown")
 
 # CORS setup voor Godot client
 app.add_middleware(
@@ -37,7 +63,8 @@ ollama_client = Client(
     headers={'Authorization': f'Bearer {OLLAMA_API_KEY}'}
 )
 
-clients = []
+# Connected clients (WebSocket connections)
+clients = {}  # device_id -> websocket mapping
 
 def call_llm(prompt: str, model: Optional[str] = None):
     """
@@ -72,25 +99,105 @@ def call_llm_stream(prompt: str, model: Optional[str] = None):
         print(f"Fout bij streaming LLM call: {e}")
         yield f"Fout: {str(e)}"
 
+async def send_command_to_device(device_id: str, command: dict):
+    """Stuurt een command naar een specifieke device."""
+    if device_id in clients:
+        try:
+            await clients[device_id].send_text(json.dumps(command))
+            return True
+        except:
+            return False
+    return False
+
+async def send_command_to_all(command: dict):
+    """Stuurt een command naar alle verbonden clients."""
+    for device_id, client in clients.items():
+        try:
+            await client.send_text(json.dumps(command))
+        except:
+            pass
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    clients.append(websocket)
-    print(f"Client verbonden. Totaal clients: {len(clients)}")
+    
+    device_id = None
+    db = SessionLocal()
     
     try:
+        print(f"📱 New WebSocket connection")
+        
         while True:
             data = await websocket.receive_text()
             event = json.loads(data)
-            print("Event van client:", event)
+            event_type = event.get("type")
             
-            # Verwerk LLM requests
-            if event.get("type") == "llm_request":
+            print(f"📨 Received: {event_type}")
+            
+            # Handle device registration
+            if event_type == "device_register":
+                device_id = event.get("device_id")
+                
+                # Check if device exists
+                existing_device = get_device(db, device_id)
+                
+                if existing_device:
+                    # Update existing device heartbeat
+                    update_heartbeat(db, device_id)
+                    device = existing_device
+                    print(f"✓ Device updated: {device_id}")
+                else:
+                    # Create new device with default permissions
+                    device_data = {
+                        'device_id': device_id,
+                        'hostname': event.get('hostname', 'unknown'),
+                        'os_type': event.get('os_type', 'unknown'),
+                        'os_version': event.get('os_version'),
+                        'capabilities': event.get('capabilities', {}),
+                        'cpu_info': event.get('metadata', {}).get('processor_name'),
+                        'ram_gb': event.get('metadata', {}).get('ram_gb'),
+                        'disk_gb': event.get('metadata', {}).get('disk_gb'),
+                        # Default permissions
+                        'allowed_tools': ['create_directory', 'delete_directory', 'search_files', 'open_app', 'get_device_info'],
+                        'allowed_paths': ['C:/Users', 'D:/Projects'] if event.get('os_type') == 'Windows' else ['/home'],
+                        'allowed_apps': ['chrome', 'firefox', 'code', 'explorer', 'terminal'],
+                        'status': 'online',
+                        'last_heartbeat': datetime.now()
+                    }
+                    device = create_device(db, device_data)
+                    print(f"✓ New device registered: {device_id}")
+                
+                # Store WebSocket connection
+                clients[device_id] = websocket
+                
+                # Send permissions back to device
+                await websocket.send_text(json.dumps({
+                    "type": "device_registered",
+                    "device_id": device_id,
+                    "permissions": {
+                        "allowed_tools": device.allowed_tools,
+                        "allowed_paths": device.allowed_paths,
+                        "allowed_apps": device.allowed_apps
+                    }
+                }))
+            
+            # Handle heartbeat
+            elif event_type == "device_heartbeat":
+                if device_id:
+                    update_heartbeat(db, device_id)
+                    await websocket.send_text(json.dumps({
+                        "type": "heartbeat_ack",
+                        "timestamp": datetime.now().isoformat()
+                    }))
+            
+            # Handle LLM requests (existing functionality)
+            elif event_type == "llm_request":
                 prompt = event.get("prompt", "")
                 model = event.get("model", OLLAMA_MODEL)
                 stream = event.get("stream", False)
                 
-                print(f"📝 LLM Request ontvangen:")
+                print(f"📝 LLM Request:")
+                print(f"   Device: {device_id}")
                 print(f"   Prompt: {prompt}")
                 print(f"   Model: {model}")
                 print(f"   Stream: {stream}")
@@ -123,22 +230,89 @@ async def websocket_endpoint(websocket: WebSocket):
                         "type": "llm_response",
                         "response": response
                     }))
+            
+            # Handle tool execution requests
+            elif event_type == "tool_execute":
+                tool_name = event.get("tool_name")
+                parameters = event.get("parameters", {})
+                
+                print(f"🔧 Tool Execution Request:")
+                print(f"   Device: {device_id}")
+                print(f"   Tool: {tool_name}")
+                print(f"   Parameters: {parameters}")
+                
+                # Execute tool via router
+                if not device_id:
+                    await websocket.send_text(json.dumps({
+                        "type": "tool_execute_response",
+                        "success": False,
+                        "error": "Device not registered"
+                    }))
+                    continue
+                    
+                router = get_router()
+                result = await router.execute_tool(
+                    db=db,
+                    device_id=device_id,
+                    tool_name=tool_name,
+                    parameters=parameters,
+                    websocket_send_func=send_command_to_device
+                )
+                
+                # Send result back to requesting device
+                await websocket.send_text(json.dumps({
+                    "type": "tool_execute_response",
+                    "success": result["success"],
+                    "execution_id": result.get("execution_id"),
+                    "message": result.get("message"),
+                    "error": result.get("error")
+                }))
+            
+            # Handle tool execution results from devices
+            elif event_type == "tool_result":
+                execution_id = event.get("execution_id")
+                success = event.get("success", False)
+                result = event.get("result")
+                error = event.get("error")
+                
+                print(f"✓ Tool Result Received:")
+                print(f"   Execution ID: {execution_id}")
+                print(f"   Success: {success}")
+                
+                # Update execution log
+                router = get_router()
+                router.handle_tool_result(
+                    db=db,
+                    execution_id=execution_id,
+                    success=success,
+                    result=result,
+                    error=error
+                )
+            
+            # Handle request for available tools
+            elif event_type == "get_tools":
+                router = get_router()
+                tools_info = router.get_available_tools(device_id)
+                
+                await websocket.send_text(json.dumps({
+                    "type": "tools_list",
+                    "tools": tools_info["tools"],
+                    "count": tools_info["count"],
+                    "categories": tools_info["categories"]
+                }))
                 
     except WebSocketDisconnect:
-        clients.remove(websocket)
-        print(f"Client verbroken. Totaal clients: {len(clients)}")
+        if device_id and device_id in clients:
+            del clients[device_id]
+        print(f"📱 Client verbroken: {device_id}")
     except Exception as e:
-        print(f"WebSocket fout: {e}")
-        if websocket in clients:
-            clients.remove(websocket)
-
-async def send_command_to_all(command):
-    """Stuurt een command naar alle verbonden clients."""
-    for client in clients:
-        try:
-            await client.send_text(json.dumps(command))
-        except:
-            pass
+        print(f"❌ WebSocket fout: {e}")
+        import traceback
+        traceback.print_exc()
+        if device_id and device_id in clients:
+            del clients[device_id]
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     import uvicorn
