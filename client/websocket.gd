@@ -7,13 +7,20 @@ var registered: bool = false
 var current_response: String = ""
 var device_id: String = ""
 var permissions: Dictionary = {}
+var tool_registry: Node = null
 
 signal llm_response_received(response: String)
 signal llm_chunk_received(chunk: String)
 signal llm_response_complete(full_response: String)
 signal device_registered(perms: Dictionary)
+signal tool_executed(tool_name: String, success: bool, result: Variant)
 
 func _ready() -> void:
+	# Initialize tool registry
+	var ToolRegistry = load("res://tools/tool_registry.gd")
+	tool_registry = ToolRegistry.new()
+	add_child(tool_registry)
+	
 	# Generate unique device ID
 	device_id = _generate_device_id()
 	print("Device ID: ", device_id)
@@ -94,6 +101,32 @@ func _handle_server_message(message: Dictionary) -> void:
 				print("Response streaming klaar!")
 				llm_response_complete.emit(current_response)
 				current_response = ""
+		
+		"tool_execute":
+			# Backend requests tool execution
+			var tool_name = message.get("tool_name")
+			var parameters = message.get("parameters", {})
+			var execution_id = message.get("execution_id")
+			
+			print("Tool execution request: ", tool_name)
+			
+			# Execute tool
+			var result = tool_registry.execute_tool(tool_name, parameters, execution_id)
+			
+			# Send result back to backend
+			var tool_result = {
+				"type": "tool_result",
+				"execution_id": execution_id,
+				"success": result.get("success", false),
+				"result": result.get("result"),
+				"error": result.get("error"),
+				"duration_ms": result.get("duration_ms", 0)
+			}
+			
+			ws_client.send_text(JSON.stringify(tool_result))
+			
+			# Emit signal for UI
+			tool_executed.emit(tool_name, result.get("success", false), result.get("result"))
 		
 		_:
 			if message.get("type"):
