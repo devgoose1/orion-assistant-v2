@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://sxltuc6tedcq"]
+
+[ext_resource type="Script" uid="uid://cgf5jv2840vqu" path="res://websocket.gd" id="1_yv7xl"]
+
+[node name="Websocket" type="Node" unique_id=1084865213]
+script = ExtResource("1_yv7xl")
