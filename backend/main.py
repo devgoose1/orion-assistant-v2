@@ -2,9 +2,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import json
-import requests
 import os
 from typing import Optional
+from dotenv import load_dotenv
+from ollama import Client
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI()
 
@@ -18,35 +22,35 @@ app.add_middleware(
 )
 
 # Ollama Cloud configuratie
-OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "https://api.ollama.ai/api/generate")
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "https://ollama.com")
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "mistral")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:120b")
+
+print(f"🔧 Backend configuratie:")
+print(f"   API URL: {OLLAMA_API_URL}")
+print(f"   API Key: {'✓ Ingesteld' if OLLAMA_API_KEY else '✗ NIET INGESTELD!'}")
+print(f"   Model: {OLLAMA_MODEL}")
+
+# Initialize Ollama client
+ollama_client = Client(
+    host=OLLAMA_API_URL,
+    headers={'Authorization': f'Bearer {OLLAMA_API_KEY}'}
+)
 
 clients = []
 
-def call_llm(prompt: str, model: Optional[str] = None) -> str:
+def call_llm(prompt: str, model: Optional[str] = None):
     """
-    Stuurt een prompt naar Ollama Cloud API en krijgt een response.
+    Stuurt een prompt naar Ollama Cloud API.
+    Geeft volledige response terug.
     """
     model = model or OLLAMA_MODEL
     
-    headers = {
-        "Authorization": f"Bearer {OLLAMA_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-    }
-    
     try:
-        response = requests.post(OLLAMA_API_URL, json=payload, headers=headers, timeout=60)
-        response.raise_for_status()
-        result = response.json()
-        return result.get("response", "").strip()
-    except requests.exceptions.RequestException as e:
+        messages = [{'role': 'user', 'content': prompt}]
+        response = ollama_client.chat(model=model, messages=messages, stream=False)
+        return response['message']['content']
+    except Exception as e:
         print(f"Fout bij LLM API call: {e}")
         return f"Fout: {str(e)}"
 
@@ -57,28 +61,14 @@ def call_llm_stream(prompt: str, model: Optional[str] = None):
     """
     model = model or OLLAMA_MODEL
     
-    headers = {
-        "Authorization": f"Bearer {OLLAMA_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "stream": True,
-    }
-    
     try:
-        response = requests.post(OLLAMA_API_URL, json=payload, headers=headers, stream=True, timeout=60)
-        response.raise_for_status()
-        
-        for line in response.iter_lines():
-            if line:
-                chunk = json.loads(line)
-                response_text = chunk.get("response", "")
-                if response_text:
-                    yield response_text
-    except requests.exceptions.RequestException as e:
+        messages = [{'role': 'user', 'content': prompt}]
+        for part in ollama_client.chat(model=model, messages=messages, stream=True):
+            if 'message' in part and 'content' in part['message']:
+                content = part['message']['content']
+                if content:
+                    yield content
+    except Exception as e:
         print(f"Fout bij streaming LLM call: {e}")
         yield f"Fout: {str(e)}"
 
@@ -100,15 +90,24 @@ async def websocket_endpoint(websocket: WebSocket):
                 model = event.get("model", OLLAMA_MODEL)
                 stream = event.get("stream", False)
                 
+                print(f"📝 LLM Request ontvangen:")
+                print(f"   Prompt: {prompt}")
+                print(f"   Model: {model}")
+                print(f"   Stream: {stream}")
+                
                 if stream:
                     # Streaming modus
+                    print("   🔄 Starten streaming...")
+                    chunk_count = 0
                     for chunk in call_llm_stream(prompt, model):
+                        chunk_count += 1
                         await websocket.send_text(json.dumps({
                             "type": "llm_response_chunk",
                             "chunk": chunk,
                             "complete": False
                         }))
                     
+                    print(f"   ✓ Streaming compleet ({chunk_count} chunks)")
                     # Signaal dat streaming klaar is
                     await websocket.send_text(json.dumps({
                         "type": "llm_response_chunk",
@@ -117,7 +116,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     }))
                 else:
                     # Niet-streaming modus
+                    print("   🔄 Ophalen response...")
                     response = await asyncio.to_thread(call_llm, prompt, model)
+                    print(f"   ✓ Response ontvangen: {response[:100]}...")
                     await websocket.send_text(json.dumps({
                         "type": "llm_response",
                         "response": response

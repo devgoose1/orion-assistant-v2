@@ -27,11 +27,14 @@ func _process(_delta: float) -> void:
 	
 	# Ontvang berichten van server
 	if ws_client.get_ready_state() == WebSocketPeer.STATE_OPEN:
-		var json_string = ws_client.get_text()
-		if json_string:
-			var message = JSON.parse_string(json_string)
-			if message != null:
-				_handle_server_message(message)
+		while ws_client.get_available_packet_count() > 0:
+			var packet = ws_client.get_packet()
+			if packet.size() > 0:
+				var json_string = packet.get_string_from_utf8()
+				if json_string:
+					var message = JSON.parse_string(json_string)
+					if message != null:
+						_handle_server_message(message)
 
 func _handle_server_message(message: Dictionary) -> void:
 	if message == null:
