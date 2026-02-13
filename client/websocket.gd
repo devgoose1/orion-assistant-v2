@@ -18,8 +18,8 @@ signal tool_executing(tool_name: String, parameters: Dictionary)
 
 func _ready() -> void:
 	# Initialize tool registry
-	var ToolRegistry = load("res://tools/tool_registry.gd")
-	tool_registry = ToolRegistry.new()
+	var ToolRegistryClass = load("res://tools/tool_registry.gd")
+	tool_registry = ToolRegistryClass.new()
 	add_child(tool_registry)
 	
 	# Generate unique device ID

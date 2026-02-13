@@ -480,7 +480,7 @@ class TestPerformance:
             }))
             
             # Should still be active
-            assert websocket.open
+            assert websocket.open  # type: ignore
 
 
 if __name__ == "__main__":
