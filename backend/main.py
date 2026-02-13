@@ -329,11 +329,31 @@ async def websocket_endpoint(websocket: WebSocket):
                                 parameters=tool_call['parameters'],
                                 websocket_send_func=send_command_to_device
                             )
+                            print(f"   🧾 Router result: {result}")
+                            if not result.get("success"):
+                                error_message = result.get("message") or result.get("error") or "Tool execution failed"
+                                tool_result_text = format_tool_result_for_llm(
+                                    tool_call['tool_name'],
+                                    False,
+                                    None,
+                                    error_message
+                                )
+                                add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
+                                current_prompt = "Please provide a natural language response based on the tool result above."
+                                continue
                             
                             # Get the execution/request ID
                             request_id = result.get('execution_id')
                             if not request_id:
                                 print(f"   ⚠️  No execution ID returned from router")
+                                tool_result_text = format_tool_result_for_llm(
+                                    tool_call['tool_name'],
+                                    False,
+                                    None,
+                                    "No execution ID returned from router"
+                                )
+                                add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
+                                current_prompt = "Please provide a natural language response based on the tool result above."
                                 continue
                             
                             # Create event to wait for tool result
@@ -413,11 +433,31 @@ async def websocket_endpoint(websocket: WebSocket):
                                 parameters=tool_call['parameters'],
                                 websocket_send_func=send_command_to_device
                             )
+                            print(f"   🧾 Router result: {result}")
+                            if not result.get("success"):
+                                error_message = result.get("message") or result.get("error") or "Tool execution failed"
+                                tool_result_text = format_tool_result_for_llm(
+                                    tool_call['tool_name'],
+                                    False,
+                                    None,
+                                    error_message
+                                )
+                                add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
+                                current_prompt = "Please provide a natural language response based on the tool result above."
+                                continue
                             
                             # Get the execution/request ID
                             request_id = result.get('execution_id')
                             if not request_id:
                                 print(f"   ⚠️  No execution ID returned from router")
+                                tool_result_text = format_tool_result_for_llm(
+                                    tool_call['tool_name'],
+                                    False,
+                                    None,
+                                    "No execution ID returned from router"
+                                )
+                                add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
+                                current_prompt = "Please provide a natural language response based on the tool result above."
                                 continue
                             
                             # Create event to wait for tool result
