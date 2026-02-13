@@ -3,3 +3,4 @@ res://websocket.gd
 res://tools/file_system_tools.gd
 res://main_ui.gd
 res://tools/device_tools.gd
+res://tools/tool_registry.gd

@@ -13,6 +13,12 @@ func _register_tools() -> void:
 	tools["create_directory"] = FileSystemTools.create_directory_tool()
 	tools["delete_directory"] = FileSystemTools.delete_directory_tool()
 	tools["search_files"] = FileSystemTools.search_files_tool()
+	tools["list_directory"] = FileSystemTools.list_directory_tool()
+	tools["read_text_file"] = FileSystemTools.read_text_file_tool()
+	tools["write_text_file"] = FileSystemTools.write_text_file_tool()
+	tools["copy_file"] = FileSystemTools.copy_file_tool()
+	tools["move_file"] = FileSystemTools.move_file_tool()
+	tools["delete_file"] = FileSystemTools.delete_file_tool()
 	
 	# Register application tools
 	tools["open_app"] = ApplicationTools.open_app_tool()

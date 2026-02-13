@@ -506,7 +506,19 @@ async def websocket_endpoint(websocket: WebSocket):
                         'ram_gb': event.get('metadata', {}).get('ram_gb'),
                         'disk_gb': event.get('metadata', {}).get('disk_gb'),
                         # Default permissions
-                        'allowed_tools': ['create_directory', 'delete_directory', 'search_files', 'open_app', 'get_device_info'],
+                        'allowed_tools': [
+                            'create_directory',
+                            'delete_directory',
+                            'search_files',
+                            'list_directory',
+                            'read_text_file',
+                            'write_text_file',
+                            'copy_file',
+                            'move_file',
+                            'delete_file',
+                            'open_app',
+                            'get_device_info'
+                        ],
                         'allowed_paths': ['C:/Users', 'D:/Projects'] if event.get('os_type') == 'Windows' else ['/home'],
                         'allowed_apps': ['chrome', 'firefox', 'code', 'explorer', 'terminal'],
                         'status': 'online',

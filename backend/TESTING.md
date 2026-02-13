@@ -97,6 +97,12 @@ Menu opties:
 | `create_directory` | `path: str` | Maakt een directory |
 | `delete_directory` | `path: str, recursive: bool` | Verwijdert directory |
 | `search_files` | `path: str, pattern: str, recursive: bool` | Zoekt bestanden |
+| `list_directory` | `path: str, recursive: bool` | Lijst directory contents |
+| `read_text_file` | `path: str` | Leest tekstbestand |
+| `write_text_file` | `path: str, content: str, append: bool` | Schrijft tekstbestand |
+| `copy_file` | `source_path: str, destination_path: str, overwrite: bool` | Kopieert bestand |
+| `move_file` | `source_path: str, destination_path: str, overwrite: bool` | Verplaatst bestand |
+| `delete_file` | `path: str, confirm: str` | Verwijdert bestand (confirm=DELETE) |
 | `open_app` | `app_name: str, arguments: list` | Opent applicatie |
 | `close_app` | `app_name: str, force: bool` | Sluit applicatie |
 | `get_device_info` | `info_type: str` | Haalt device info op |

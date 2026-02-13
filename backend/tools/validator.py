@@ -5,6 +5,7 @@ Tool Validator - Validates tool parameters and permissions
 from typing import Dict, Any, Optional, List
 from sqlalchemy.orm import Session
 import re
+import os
 
 from .registry import Tool, ToolParameter, ParameterType
 from services.device_service import check_device_permission, check_path_allowed
@@ -140,10 +141,28 @@ class ToolValidator:
                 raise ValidationError(f"Device '{device_id}' does not have permission to use tool '{tool.name}'")
         
         elif permission_type == "path":
-            # Check path permission
-            path = parameters.get("path")
-            if path and not check_path_allowed(db, device_id, path):
-                raise ValidationError(f"Device '{device_id}' does not have permission to access path '{path}'")
+            # Custom path validation per tool
+            if tool.name in {"copy_file", "move_file"}:
+                source_path = parameters.get("source_path")
+                destination_path = parameters.get("destination_path")
+                if source_path and not check_path_allowed(db, device_id, source_path):
+                    raise ValidationError(f"Device '{device_id}' does not have permission to access path '{source_path}'")
+                if destination_path and not check_path_allowed(db, device_id, destination_path):
+                    raise ValidationError(f"Device '{device_id}' does not have permission to access path '{destination_path}'")
+            else:
+                # Check path permission
+                path = parameters.get("path")
+                if path and not check_path_allowed(db, device_id, path):
+                    raise ValidationError(f"Device '{device_id}' does not have permission to access path '{path}'")
+
+            # Extra safety for delete_file
+            if tool.name == "delete_file":
+                confirm = parameters.get("confirm")
+                if confirm != "DELETE":
+                    raise ValidationError("delete_file requires confirm=DELETE")
+                path = parameters.get("path")
+                if path and ToolValidator._is_root_path(path):
+                    raise ValidationError("delete_file cannot target a root path")
         
         elif permission_type == "app":
             # Check app permission
@@ -166,3 +185,11 @@ class ToolValidator:
         ToolValidator.validate_permissions(db, device_id, tool, validated_params)
         
         return validated_params
+
+    @staticmethod
+    def _is_root_path(path: str) -> bool:
+        normalized = os.path.normpath(path)
+        drive, tail = os.path.splitdrive(normalized)
+        if drive and (tail == os.sep or tail == ""):
+            return True
+        return normalized in {"/", "\\"}

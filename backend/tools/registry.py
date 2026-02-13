@@ -176,6 +176,139 @@ class ToolRegistry:
             ],
             permission_type="path"
         ))
+
+        self.register(Tool(
+            name="list_directory",
+            description="List files and folders in a directory",
+            category=ToolCategory.FILE_SYSTEM,
+            parameters=[
+                ToolParameter(
+                    name="path",
+                    type=ParameterType.PATH,
+                    description="Directory path to list"
+                ),
+                ToolParameter(
+                    name="recursive",
+                    type=ParameterType.BOOLEAN,
+                    description="List contents recursively",
+                    required=False,
+                    default=False
+                )
+            ],
+            permission_type="path"
+        ))
+
+        self.register(Tool(
+            name="read_text_file",
+            description="Read a text file and return its contents",
+            category=ToolCategory.FILE_SYSTEM,
+            parameters=[
+                ToolParameter(
+                    name="path",
+                    type=ParameterType.PATH,
+                    description="Full path of the text file to read"
+                )
+            ],
+            permission_type="path"
+        ))
+
+        self.register(Tool(
+            name="write_text_file",
+            description="Write text to a file (overwrite or append)",
+            category=ToolCategory.FILE_SYSTEM,
+            parameters=[
+                ToolParameter(
+                    name="path",
+                    type=ParameterType.PATH,
+                    description="Full path of the text file to write"
+                ),
+                ToolParameter(
+                    name="content",
+                    type=ParameterType.STRING,
+                    description="Text content to write"
+                ),
+                ToolParameter(
+                    name="append",
+                    type=ParameterType.BOOLEAN,
+                    description="Append to the file instead of overwriting",
+                    required=False,
+                    default=False
+                )
+            ],
+            permission_type="path"
+        ))
+
+        self.register(Tool(
+            name="copy_file",
+            description="Copy a file to a new path",
+            category=ToolCategory.FILE_SYSTEM,
+            parameters=[
+                ToolParameter(
+                    name="source_path",
+                    type=ParameterType.PATH,
+                    description="Full path of the source file"
+                ),
+                ToolParameter(
+                    name="destination_path",
+                    type=ParameterType.PATH,
+                    description="Full path of the destination file"
+                ),
+                ToolParameter(
+                    name="overwrite",
+                    type=ParameterType.BOOLEAN,
+                    description="Overwrite the destination if it exists",
+                    required=False,
+                    default=False
+                )
+            ],
+            permission_type="path"
+        ))
+
+        self.register(Tool(
+            name="move_file",
+            description="Move or rename a file",
+            category=ToolCategory.FILE_SYSTEM,
+            parameters=[
+                ToolParameter(
+                    name="source_path",
+                    type=ParameterType.PATH,
+                    description="Full path of the source file"
+                ),
+                ToolParameter(
+                    name="destination_path",
+                    type=ParameterType.PATH,
+                    description="Full path of the destination file"
+                ),
+                ToolParameter(
+                    name="overwrite",
+                    type=ParameterType.BOOLEAN,
+                    description="Overwrite the destination if it exists",
+                    required=False,
+                    default=False
+                )
+            ],
+            permission_type="path"
+        ))
+
+        self.register(Tool(
+            name="delete_file",
+            description="Delete a file (requires explicit confirmation)",
+            category=ToolCategory.FILE_SYSTEM,
+            parameters=[
+                ToolParameter(
+                    name="path",
+                    type=ParameterType.PATH,
+                    description="Full path of the file to delete"
+                ),
+                ToolParameter(
+                    name="confirm",
+                    type=ParameterType.STRING,
+                    description="Type DELETE to confirm deletion"
+                )
+            ],
+            permission_type="path",
+            dangerous=True
+        ))
         
         # Application Tools
         self.register(Tool(
