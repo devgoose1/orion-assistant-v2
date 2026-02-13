@@ -248,27 +248,134 @@ func _get_system_metrics() -> Dictionary:
 
 func _estimate_cpu_usage() -> float:
 	"""
-	Schat CPU-gebruik in Godot.
-	Godot heeft geen directe CPU usage API, dus gebruiken we process delta als proxy.
+	Verzamel werkelijke CPU-gebruik via OS commands.
+	Fallback op placeholder als commands falen.
 	
 	Returns:
-		Genormaliseerde CPU percentage (0-100)
+		CPU percentage (0-100)
 	"""
-	# In een real implementation zou je system calls gebruiken
-	# Voor nu gebruiken we een dummy waarde
-	# Windows: wmic CPU get LoadPercentage
-	# Linux: /proc/stat
-	return randf_range(10.0, 40.0)  # Placeholder
+	match OS.get_name():
+		"Windows":
+			return _get_windows_cpu_usage()
+		"Linux":
+			return _get_linux_cpu_usage()
+		"macOS":
+			return _get_macos_cpu_usage()
+		_:
+			return randf_range(10.0, 40.0)
+
+
+func _get_windows_cpu_usage() -> float:
+	"""Get CPU usage on Windows using wmic."""
+	var output = []
+	var err = OS.execute("cmd", ["/C", "wmic CPU get LoadPercentage"], output)
+	if err == OK and output.size() > 1:
+		var line = output[1].strip_edges()
+		if line.is_valid_float():
+			return float(line)
+	return randf_range(10.0, 40.0)
+
+
+func _get_linux_cpu_usage() -> float:
+	"""Get CPU usage on Linux using /proc/stat."""
+	var output = []
+	var err = OS.execute("bash", ["-c", "cat /proc/stat | head -1"], output)
+	if err == OK and output.size() > 0:
+		# Parse CPU line: cpu user nice system idle iowait irq softirq...
+		var parts = output[0].split(" ")
+		if parts.size() >= 5:
+			var user = int(parts[1])
+			var system = int(parts[3])
+			var idle = int(parts[4])
+			var total = user + system + idle
+			if total > 0:
+				return (float(user + system) / float(total)) * 100.0
+	return randf_range(10.0, 40.0)
+
+
+func _get_macos_cpu_usage() -> float:
+	"""Get CPU usage on macOS."""
+	var output = []
+	var err = OS.execute("bash", ["-c", "ps aux | awk '{sum+=$3} END {print sum}'"], output)
+	if err == OK and output.size() > 0:
+		var value = output[0].strip_edges()
+		if value.is_valid_float():
+			return min(100.0, float(value))
+	return randf_range(10.0, 40.0)
 
 
 func _get_memory_usage() -> float:
 	"""
-	Krijg huidige geheugen-gebruik.
+	Krijg werkelijke geheugen-gebruik via OS commands.
+	Falls back to Godot API if system commands fail.
 	
 	Returns:
 		Geheugen percentage (0-100)
 	"""
-	# Godot provides some memory info
+	match OS.get_name():
+		"Windows":
+			return _get_windows_memory_usage()
+		"Linux":
+			return _get_linux_memory_usage()
+		"macOS":
+			return _get_macos_memory_usage()
+		_:
+			# Fallback: use Godot memory info
+			return _get_godot_memory_usage()
+
+
+func _get_windows_memory_usage() -> float:
+	"""Get memory usage on Windows using wmic."""
+	var output = []
+	var err = OS.execute("cmd", ["/C", "wmic ComputerSystem get TotalPhysicalMemory"], output)
+	if err == OK and output.size() > 1:
+		var total_str = output[1].strip_edges()
+		if total_str.is_valid_int():
+			var total = float(total_str)
+			var output2 = []
+			var err2 = OS.execute("cmd", ["/C", "wmic OS get FreePhysicalMemory"], output2)
+			if err2 == OK and output2.size() > 1:
+				var free_str = output2[1].strip_edges()
+				if free_str.is_valid_int():
+					var free = float(free_str)
+					return ((total - free) / total) * 100.0
+	return _get_godot_memory_usage()
+
+
+func _get_linux_memory_usage() -> float:
+	"""Get memory usage on Linux using /proc/meminfo."""
+	var output = []
+	var err = OS.execute("bash", ["-c", "grep -E 'MemTotal|MemAvailable' /proc/meminfo | awk '{print $2}'"], output)
+	if err == OK and output.size() >= 2:
+		if output[0].is_valid_int() and output[1].is_valid_int():
+			var total = float(output[0])
+			var available = float(output[1])
+			var used = total - available
+			return (used / total) * 100.0
+	return _get_godot_memory_usage()
+
+
+func _get_macos_memory_usage() -> float:
+	"""Get memory usage on macOS using vm_stat."""
+	var output = []
+	var err = OS.execute("bash", ["-c", "vm_stat | grep 'Pages free' | awk '{print $3}' | tr -d '.'"], output)
+	if err == OK and output.size() > 0:
+		var free_str = output[0].strip_edges()
+		if free_str.is_valid_int():
+			var free_pages = float(free_str)
+			var output2 = []
+			var err2 = OS.execute("bash", ["-c", "sysctl hw.memsize | awk '{print $3}'"], output2)
+			if err2 == OK and output2.size() > 0:
+				var total_str = output2[0].strip_edges()
+				if total_str.is_valid_int():
+					var total = float(total_str)
+					var free_bytes = free_pages * 4096  # 4KB pages
+					return ((total - free_bytes) / total) * 100.0
+	return _get_godot_memory_usage()
+
+
+func _get_godot_memory_usage() -> float:
+	"""Fallback: use Godot's memory info."""
 	var memory_info = OS.get_static_memory_usage()
 	# Use a reasonable estimate for memory limit (e.g., 2GB)
 	var memory_limit = 2147483648  # 2GB in bytes
@@ -281,11 +388,60 @@ func _get_memory_usage() -> float:
 
 func _get_disk_usage() -> float:
 	"""
-	Krijg schijf-gebruik van het huidige pad.
+	Krijg schijf-gebruik via OS commands.
+	Returns percentage for system drive/partition.
 	
 	Returns:
-		Schijf percentage (0-100) - kan niet exact bepaald worden in Godot
+		Schijf percentage (0-100)
 	"""
-	# Godot heeft geen directe disk usage API
-	# Dit is een placeholder die kan worden vervangen met OS.execute()
-	return randf_range(30.0, 70.0)  # Placeholder
+	match OS.get_name():
+		"Windows":
+			return _get_windows_disk_usage()
+		"Linux":
+			return _get_linux_disk_usage()
+		"macOS":
+			return _get_macos_disk_usage()
+		_:
+			return randf_range(30.0, 70.0)
+
+
+func _get_windows_disk_usage() -> float:
+	"""Get disk usage on Windows using wmic."""
+	var output = []
+	var err = OS.execute("cmd", ["/C", "wmic logicaldisk get size,freespace"], output)
+	if err == OK and output.size() > 1:
+		# Parse output: extract size and freespace for C: drive
+		var lines = output[1].strip_edges().split(" ")
+		if lines.size() >= 2:
+			var freespace = float(lines[0])
+			var size = float(lines[1])
+			if size > 0:
+				var used = size - freespace
+				return (used / size) * 100.0
+	return randf_range(30.0, 70.0)
+
+
+func _get_linux_disk_usage() -> float:
+	"""Get disk usage on Linux using df."""
+	var output = []
+	var err = OS.execute("bash", ["-c", "df -h / | tail -1 | awk '{print $5}'"], output)
+	if err == OK and output.size() > 0:
+		var percent_str = output[0].strip_edges()
+		if percent_str.ends_with("%"):
+			percent_str = percent_str.trim_suffix("%")
+		if percent_str.is_valid_float():
+			return float(percent_str)
+	return randf_range(30.0, 70.0)
+
+
+func _get_macos_disk_usage() -> float:
+	"""Get disk usage on macOS."""
+	var output = []
+	var err = OS.execute("bash", ["-c", "df -h / | tail -1 | awk '{print $5}'"], output)
+	if err == OK and output.size() > 0:
+		var percent_str = output[0].strip_edges()
+		if percent_str.ends_with("%"):
+			percent_str = percent_str.trim_suffix("%")
+		if percent_str.is_valid_float():
+			return float(percent_str)
+	return randf_range(30.0, 70.0)

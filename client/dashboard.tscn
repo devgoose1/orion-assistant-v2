@@ -1,0 +1,43 @@
+[gd_scene format=3 uid="uid://b3u3nb6igkqw8"]
+
+[ext_resource type="Script" uid="uid://dl77b0i7kabw1" path="res://dashboard.gd" id="1_23vhs"]
+
+[node name="Dashboard" type="Control" unique_id=600962993]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_23vhs")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="." unique_id=1858826092]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="HBoxContainer" type="HBoxContainer" parent="VBoxContainer" unique_id=728062804]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="VBoxContainer/HBoxContainer" unique_id=139746904]
+layout_mode = 2
+text = "Orion Dashboard"
+
+[node name="Label2" type="Label" parent="VBoxContainer/HBoxContainer" unique_id=351171464]
+layout_mode = 2
+text = "Status: Connected"
+
+[node name="HBoxContainer2" type="HBoxContainer" parent="VBoxContainer" unique_id=1408801291]
+layout_mode = 2
+
+[node name="TabContainer" type="TabContainer" parent="VBoxContainer/HBoxContainer2" unique_id=1940154619]
+layout_mode = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="VBoxContainer/HBoxContainer2" unique_id=952614627]
+layout_mode = 2
+
+[node name="PanelContainer" type="PanelContainer" parent="VBoxContainer/HBoxContainer2/VBoxContainer" unique_id=1838991012]
+layout_mode = 2
+
+[node name="PanelContainer2" type="PanelContainer" parent="VBoxContainer/HBoxContainer2/VBoxContainer" unique_id=708387830]
+layout_mode = 2
