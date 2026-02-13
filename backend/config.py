@@ -49,6 +49,7 @@ MESSAGE_TYPE_TOOL_EXECUTING = "tool_executing"
 MESSAGE_TYPE_TOOL_RESULT = "tool_result"
 MESSAGE_TYPE_DEVICE_REGISTER = "device_register"
 MESSAGE_TYPE_DEVICE_HEARTBEAT = "device_heartbeat"
+MESSAGE_TYPE_METRICS_UPDATE = "metrics_update"
 MESSAGE_TYPE_GET_TOOLS = "get_tools"
 MESSAGE_TYPE_ERROR = "error"
 
@@ -104,3 +105,9 @@ LOG_PREFIX_WAIT = "⏳"
 LOG_PREFIX_RESULT = "🧾"
 LOG_PREFIX_ALERT = "⚠️"
 LOG_PREFIX_CHECK = "✅"
+# Dashboard & Monitoring
+METRICS_COLLECTION_INTERVAL = 5.0  # seconds between metric updates
+METRICS_RETENTION_DAYS = 7  # keep metrics for 7 days
+DASHBOARD_REFRESH_INTERVAL = 2.0  # seconds between dashboard updates
+MAX_METRICS_HISTORY = 100  # max metrics entries to return in API
+MAX_EXECUTION_HISTORY = 50  # max tool execution history to return

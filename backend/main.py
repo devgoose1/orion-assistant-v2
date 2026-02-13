@@ -17,6 +17,12 @@ from services.device_service import (
     create_device, get_device, update_heartbeat, 
     check_device_permission, check_path_allowed
 )
+from services.dashboard_service import (
+    get_dashboard_overview,
+    get_device_details,
+    get_device_metrics_history,
+    record_device_metrics
+)
 from tools.router import get_router
 from tools.registry import get_registry
 from tools.llm_integration import (
@@ -550,6 +556,20 @@ async def websocket_endpoint(websocket: WebSocket):
             elif event_type == "device_heartbeat":
                 if device_id:
                     update_heartbeat(db, device_id)
+                    
+                    # Record metrics if included in heartbeat
+                    metrics = event.get("metrics")
+                    if metrics:
+                        record_device_metrics(
+                            device_id,
+                            cpu_percent=metrics.get("cpu_percent", 0),
+                            memory_percent=metrics.get("memory_percent", 0),
+                            disk_percent=metrics.get("disk_percent", 0),
+                            process_count=metrics.get("process_count"),
+                            thread_count=metrics.get("thread_count"),
+                            db=db
+                        )
+                    
                     await websocket.send_text(json.dumps({
                         "type": "heartbeat_ack",
                         "timestamp": datetime.now().isoformat()
@@ -730,6 +750,77 @@ async def list_connected_devices() -> Dict[str, Any]:
         "devices": devices,
         "count": len(devices)
     }
+
+# Dashboard API Endpoints
+@app.get("/api/dashboard/overview")
+async def dashboard_overview() -> Dict[str, Any]:
+    """Get dashboard overview - summary of all devices and activity.
+    
+    Returns:
+        Dashboard overview with device summaries and metrics
+    """
+    db = SessionLocal()
+    try:
+        overview = get_dashboard_overview(db)
+        return {
+            "success": True,
+            "data": overview
+        }
+    finally:
+        db.close()
+
+@app.get("/api/dashboard/device/{device_id}")
+async def dashboard_device_details(device_id: str) -> Dict[str, Any]:
+    """Get detailed information about a specific device.
+    
+    Args:
+        device_id: Device identifier
+    
+    Returns:
+        Device details, current metrics, execution history
+    """
+    db = SessionLocal()
+    try:
+        details = get_device_details(device_id, db)
+        if not details:
+            return {
+                "success": False,
+                "error": f"Device '{device_id}' not found"
+            }
+        return {
+            "success": True,
+            "data": details
+        }
+    finally:
+        db.close()
+
+@app.get("/api/dashboard/metrics/{device_id}")
+async def dashboard_device_metrics(device_id: str, limit: int = 50) -> Dict[str, Any]:
+    """Get historical metrics for a device.
+    
+    Args:
+        device_id: Device identifier
+        limit: Maximum number of metric entries to return (default 50, max 200)
+    
+    Returns:
+        List of metric snapshots, most recent first
+    """
+    limit = min(limit, 200)  # Cap at 200
+    db = SessionLocal()
+    try:
+        metrics = get_device_metrics_history(device_id, db, limit=limit)
+        if not metrics:
+            return {
+                "success": False,
+                "error": f"No metrics found for device '{device_id}'"
+            }
+        return {
+            "success": True,
+            "data": metrics,
+            "count": len(metrics)
+        }
+    finally:
+        db.close()
 
 if __name__ == "__main__":
     import uvicorn

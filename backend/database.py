@@ -46,6 +46,7 @@ def init_db():
     from models.tool_execution import ToolExecution
     from models.event import Event
     from models.context_memory import ContextMemory
+    from models.device_metrics import DeviceMetrics
     
     Base.metadata.create_all(bind=engine)
     print("✓ Database initialized")
