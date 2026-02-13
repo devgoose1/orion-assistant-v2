@@ -6,6 +6,7 @@ from sqlalchemy import func
 from models.device import Device
 from datetime import datetime
 from typing import Optional, List
+import os
 
 def create_device(db: Session, device_data: dict) -> Device:
     """Create a new device"""
@@ -80,8 +81,17 @@ def check_path_allowed(db: Session, device_id: str, path: str) -> bool:
     # Get allowed paths from device
     allowed_paths = device.allowed_paths if isinstance(device.allowed_paths, list) else []
     
+    def normalize_path(value: str) -> str:
+        # Normalize path separators and casing for reliable prefix checks
+        return os.path.normcase(os.path.normpath(value))
+
+    normalized_path = normalize_path(path)
+
     # Check if path starts with any allowed path
     for allowed_path in allowed_paths:
-        if path.startswith(str(allowed_path)):
+        normalized_allowed = normalize_path(str(allowed_path))
+        if normalized_path == normalized_allowed:
+            return True
+        if normalized_path.startswith(normalized_allowed + os.sep):
             return True
     return False
