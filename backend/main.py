@@ -155,6 +155,36 @@ async def _process_tool_call(
     add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
     return (True, "Please provide a natural language response based on the tool result above.")
 
+async def _get_llm_response(
+    prompt: str,
+    model: str,
+    session_id: str,
+    stream: bool,
+    websocket: Optional[WebSocket] = None
+) -> str:
+    """
+    Get LLM response with optional streaming to websocket.
+    
+    Returns the complete response text.
+    If streaming, sends chunks to websocket in real-time.
+    """
+    if stream and websocket:
+        response_buffer = ""
+        chunk_count = 0
+        for chunk in call_llm_stream(prompt, model, session_id):
+            chunk_count += 1
+            response_buffer += chunk
+            await websocket.send_text(json.dumps({
+                "type": "llm_response_chunk",
+                "chunk": chunk,
+                "complete": False
+            }))
+        print(f"   ✓ Streaming complete ({chunk_count} chunks)")
+        return response_buffer
+    else:
+        # Non-streaming mode
+        return await asyncio.to_thread(call_llm, prompt, model, session_id)
+
 async def handle_llm_request(websocket: WebSocket, event: dict, device_id: Optional[str]):
     """Process an LLM request without blocking the websocket receive loop."""
     db = SessionLocal()
@@ -178,233 +208,37 @@ async def handle_llm_request(websocket: WebSocket, event: dict, device_id: Optio
         while iteration < MAX_TOOL_ITERATIONS:
             iteration += 1
             
-            if stream:
-                # Streaming mode - collect full response first to detect tool calls
-                print(f"   🔄 Iteration {iteration}: Streaming...")
-                response_buffer = ""
-                chunk_count = 0
-                
-                for chunk in call_llm_stream(current_prompt, model, session_id):
-                    chunk_count += 1
-                    response_buffer += chunk
-                    # Stream chunks to client in real-time
-                    await websocket.send_text(json.dumps({
-                        "type": "llm_response_chunk",
-                        "chunk": chunk,
-                        "complete": False
-                    }))
-                
-                print(f"   ✓ Streaming complete ({chunk_count} chunks)")
-                
-                # Debug: print first 200 chars of response buffer
-                print(f"   📋 Response buffer preview: {response_buffer[:200]}...")
-                
-                # Check for tool calls in complete response
-                text, tool_call = extract_text_and_tool_call(response_buffer)
-                
-                if tool_call:
-                    print(f"   🔧 Tool call detected: {tool_call['tool_name']}")
-                    
-                    # Check device_id is available
-                    if not device_id:
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "error": "Device not registered"
-                        }))
-                        break
-                    
-                    # Notify client that tool is executing
-                    await websocket.send_text(json.dumps({
-                        "type": "tool_executing",
-                        "tool_name": tool_call['tool_name'],
-                        "parameters": tool_call['parameters']
-                    }))
-                    
-                    # Execute tool via router
-                    router = get_router()
-                    result = await router.execute_tool(
-                        db=db,
-                        device_id=device_id,
-                        tool_name=tool_call['tool_name'],
-                        parameters=tool_call['parameters'],
-                        websocket_send_func=send_command_to_device
-                    )
-                    print(f"   🧾 Router result: {result}")
-                    if not result.get("success"):
-                        error_message = result.get("message") or result.get("error") or "Tool execution failed"
-                        tool_result_text = format_tool_result_for_llm(
-                            tool_call['tool_name'],
-                            False,
-                            None,
-                            error_message
-                        )
-                        add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
-                        current_prompt = "Please provide a natural language response based on the tool result above."
-                        continue
-                    
-                    # Get the execution/request ID
-                    request_id = result.get('execution_id')
-                    if not request_id:
-                        print(f"   ⚠️  No execution ID returned from router")
-                        tool_result_text = format_tool_result_for_llm(
-                            tool_call['tool_name'],
-                            False,
-                            None,
-                            "No execution ID returned from router"
-                        )
-                        add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
-                        current_prompt = "Please provide a natural language response based on the tool result above."
-                        continue
-                    
-                    # Create event to wait for tool result
-                    tool_event = asyncio.Event()
-                    tool_executions[request_id] = {
-                        "event": tool_event,
-                        "result": None
-                    }
-                    
-                    # Wait for tool result with timeout
-                    print(f"   ⏳ Waiting for tool result (request_id: {request_id})...")
-                    try:
-                        await asyncio.wait_for(tool_event.wait(), timeout=TOOL_EXECUTION_TIMEOUT)
-                        actual_result = tool_executions[request_id]["result"]
-                        print(f"   ✓ Tool result received!")
-                    except asyncio.TimeoutError:
-                        print(f"   ⚠️  Timeout waiting for tool result")
-                        actual_result = {
-                            "success": False,
-                            "error": "Tool execution timeout"
-                        }
-                    finally:
-                        # Clean up
-                        if request_id in tool_executions:
-                            del tool_executions[request_id]
-                    
-                    # Format tool result for LLM
-                    tool_result_text = format_tool_result_for_llm(
-                        tool_call['tool_name'],
-                        actual_result['success'],
-                        actual_result.get('result'),
-                        actual_result.get('error')
-                    )
-                    
-                    # Add tool result to conversation and continue
-                    add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
-                    current_prompt = "Please provide a natural language response based on the tool result above."
-                    
-                    # Continue loop for next iteration
+            print(f"   🔄 Iteration {iteration}: {'Streaming' if stream else 'Getting response'}...")
+            response = await _get_llm_response(current_prompt, model, session_id, stream, websocket)
+            print(f"   ✓ Response received: {response[:100]}...")
+            
+            # Check for tool calls
+            text, tool_call = extract_text_and_tool_call(response)
+            
+            if tool_call:
+                # Use extracted helper function for tool processing
+                should_continue, next_prompt = await _process_tool_call(
+                    websocket, tool_call, device_id, session_id, db
+                )
+                if should_continue:
+                    current_prompt = next_prompt
                     continue
                 else:
-                    # No tool call - we're done
-                    print("   ✓ No tool call detected, finishing")
+                    break
+            else:
+                # No tool call - send response and finish
+                if stream:
                     await websocket.send_text(json.dumps({
                         "type": "llm_response_chunk",
                         "chunk": "",
                         "complete": True
                     }))
-                    break
-                    
-            else:
-                # Non-streaming mode
-                print(f"   🔄 Iteration {iteration}: Getting response...")
-                response = await asyncio.to_thread(call_llm, current_prompt, model, session_id)
-                print(f"   ✓ Response received: {response[:100]}...")
-                
-                # Check for tool calls
-                text, tool_call = extract_text_and_tool_call(response)
-                
-                if tool_call:
-                    print(f"   🔧 Tool call detected: {tool_call['tool_name']}")
-                    
-                    # Check device_id is available
-                    if not device_id:
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "error": "Device not registered"
-                        }))
-                        break
-                    
-                    # Execute tool
-                    router = get_router()
-                    result = await router.execute_tool(
-                        db=db,
-                        device_id=device_id,
-                        tool_name=tool_call['tool_name'],
-                        parameters=tool_call['parameters'],
-                        websocket_send_func=send_command_to_device
-                    )
-                    print(f"   🧾 Router result: {result}")
-                    if not result.get("success"):
-                        error_message = result.get("message") or result.get("error") or "Tool execution failed"
-                        tool_result_text = format_tool_result_for_llm(
-                            tool_call['tool_name'],
-                            False,
-                            None,
-                            error_message
-                        )
-                        add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
-                        current_prompt = "Please provide a natural language response based on the tool result above."
-                        continue
-                    
-                    # Get the execution/request ID
-                    request_id = result.get('execution_id')
-                    if not request_id:
-                        print(f"   ⚠️  No execution ID returned from router")
-                        tool_result_text = format_tool_result_for_llm(
-                            tool_call['tool_name'],
-                            False,
-                            None,
-                            "No execution ID returned from router"
-                        )
-                        add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
-                        current_prompt = "Please provide a natural language response based on the tool result above."
-                        continue
-                    
-                    # Create event to wait for tool result
-                    tool_event = asyncio.Event()
-                    tool_executions[request_id] = {
-                        "event": tool_event,
-                        "result": None
-                    }
-                    
-                    # Wait for tool result with timeout
-                    print(f"   ⏳ Waiting for tool result (request_id: {request_id})...")
-                    try:
-                        await asyncio.wait_for(tool_event.wait(), timeout=TOOL_EXECUTION_TIMEOUT)
-                        actual_result = tool_executions[request_id]["result"]
-                        print(f"   ✓ Tool result received!")
-                    except asyncio.TimeoutError:
-                        print(f"   ⚠️  Timeout waiting for tool result")
-                        actual_result = {
-                            "success": False,
-                            "error": "Tool execution timeout"
-                        }
-                    finally:
-                        # Clean up
-                        if request_id in tool_executions:
-                            del tool_executions[request_id]
-                    
-                    await asyncio.sleep(0.5)
-                    
-                    # Format tool result
-                    tool_result_text = format_tool_result_for_llm(
-                        tool_call['tool_name'],
-                        actual_result['success'],
-                        actual_result.get('result'),
-                        actual_result.get('error')
-                    )
-                    
-                    # Continue with tool result
-                    add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
-                    current_prompt = "Please provide a natural language response based on the tool result above."
-                    continue
                 else:
-                    # No tool call - send response
                     await websocket.send_text(json.dumps({
                         "type": "llm_response",
                         "response": response
                     }))
-                    break
+                break
         
         if iteration >= MAX_TOOL_ITERATIONS:
             print(f"   ⚠️  Max tool iterations reached ({MAX_TOOL_ITERATIONS})")
