@@ -48,8 +48,15 @@ class ToolTestRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """FastAPI application lifecycle manager.
+    
+    Handles startup and shutdown tasks:
+    - Initialize SQLite database and create tables
+    - Load and initialize tool registry
+    - Log initialization status
+    - Handle graceful shutdown
+    """
     init_db()
-    # Initialize tool registry
     registry = get_registry()
     print(f"✓ Tool registry initialized with {len(registry.list_all())} tools")
     print("✓ Application started")
@@ -68,12 +75,25 @@ async def _process_tool_call(
     session_id: str,
     db: Any
 ) -> Tuple[bool, Optional[str]]:
-    """
-    Process a single tool call and return whether to continue the loop and next prompt.
+    """Process a single tool call and wait for execution result.
     
-    Returns: (should_continue, next_prompt_or_none)
-    - should_continue: True to continue the loop, False to break
-    - next_prompt_or_none: Text to use as next prompt if continuing, None if breaking
+    Executes a tool on the target device and waits for the result with a timeout.
+    Integrates the result back into the conversation context for the LLM.
+    
+    Args:
+        websocket: WebSocket connection to send status updates
+        tool_call: Tool execution request with name and parameters
+        device_id: Target device ID (required for tool execution)
+        session_id: Conversation session ID for context management
+        db: Database session for logging and context storage
+    
+    Returns:
+        Tuple of (should_continue, next_prompt):
+        - should_continue: True to continue tool iteration loop, False to break
+        - next_prompt: Text prompt for next LLM call, None if breaking
+    
+    Raises:
+        Handles internal errors gracefully, doesn't raise exceptions
     """
     print(f"   🔧 Tool call detected: {tool_call['tool_name']}")
     
@@ -162,11 +182,20 @@ async def _get_llm_response(
     stream: bool,
     websocket: Optional[WebSocket] = None
 ) -> str:
-    """
-    Get LLM response with optional streaming to websocket.
+    """Get LLM response with optional real-time streaming.
     
-    Returns the complete response text.
-    If streaming, sends chunks to websocket in real-time.
+    Fetches response from Ollama LLM API, either streaming chunks to WebSocket
+    or returning complete response synchronously.
+    
+    Args:
+        prompt: User prompt/message to send to LLM
+        model: Ollama model name (e.g., 'gpt-oss:120b')
+        session_id: Conversation session for context management
+        stream: If True, stream chunks; if False, return full response
+        websocket: Optional WebSocket for streaming chunks to client
+    
+    Returns:
+        Complete LLM response as string
     """
     if stream and websocket:
         response_buffer = ""
@@ -186,7 +215,20 @@ async def _get_llm_response(
         return await asyncio.to_thread(call_llm, prompt, model, session_id)
 
 async def handle_llm_request(websocket: WebSocket, event: dict, device_id: Optional[str]):
-    """Process an LLM request without blocking the websocket receive loop."""
+    """Process an LLM request in a background task without blocking WebSocket.
+    
+    Implements multi-turn tool-aware conversation loop:
+    1. Get LLM response (streaming or non-streaming)
+    2. Check for tool calls in response
+    3. Execute tool if present, add result to conversation
+    4. Continue loop up to MAX_TOOL_ITERATIONS
+    5. Send final response to client
+    
+    Args:
+        websocket: WebSocket connection for streaming responses and tool execution
+        event: Request dict with 'prompt', 'stream' (bool), 'model', 'session_id'
+        device_id: Device ID executing the request (optional, defaults to session_id)
+    """
     db = SessionLocal()
     try:
         prompt = event.get("prompt", "")
@@ -220,7 +262,7 @@ async def handle_llm_request(websocket: WebSocket, event: dict, device_id: Optio
                 should_continue, next_prompt = await _process_tool_call(
                     websocket, tool_call, device_id, session_id, db
                 )
-                if should_continue:
+                if should_continue and next_prompt:
                     current_prompt = next_prompt
                     continue
                 else:
@@ -284,12 +326,32 @@ conversations = {}  # session_id -> [{"role": "system|user|assistant", "content"
 tool_executions = {}  # request_id -> {"event": Event, "result": dict}
 
 def requires_tool_for_prompt(prompt: str) -> bool:
-    """Check if user prompt likely requires a tool to execute."""
+    """Check if user prompt likely requires a tool to execute.
+    
+    Uses heuristic phrase matching to determine if LLM should provide a tool call.
+    Used to trigger forced retry when LLM response lacks expected tool call JSON.
+    
+    Args:
+        prompt: User prompt to check
+    
+    Returns:
+        True if prompt contains action-oriented phrases, False otherwise
+    """
     lowered = prompt.lower()
     return any(phrase in lowered for phrase in TOOL_HEURISTIC_PHRASES)
 
 def get_or_create_conversation(session_id: str) -> list:
-    """Get or create a conversation context for a session."""
+    """Get or create conversation history for a session.
+    
+    Maintains per-session conversation context with system prompt as first message.
+    Limits history to CONVERSATION_HISTORY_LIMIT to manage token usage.
+    
+    Args:
+        session_id: Unique session identifier
+    
+    Returns:
+        List of messages with role/content dicts; first is system prompt
+    """
     if session_id not in conversations:
         system_prompt = generate_system_prompt()
         conversations[session_id] = [
@@ -307,10 +369,19 @@ def add_message_to_conversation(session_id: str, role: str, content: str):
         conversations[session_id] = [conversation[0]] + conversation[-(CONVERSATION_HISTORY_LIMIT):]
 
 
-def call_llm(prompt: str, model: Optional[str] = None, session_id: Optional[str] = None):
-    """
-    Stuurt een prompt naar Ollama Cloud API.
-    Geeft volledige response terug.
+def call_llm(prompt: str, model: Optional[str] = None, session_id: Optional[str] = None) -> str:
+    """Query Ollama LLM synchronously with conversation context.
+    
+    Sends prompt to Ollama Cloud API with full conversation history for context.
+    Uses default model if not specified. Adds LLM response to conversation.
+    
+    Args:
+        prompt: Message/prompt to send to LLM
+        model: Ollama model name; uses DEFAULT_OLLAMA_MODEL if None
+        session_id: Session ID for context; creates new if None
+    
+    Returns:
+        Complete LLM response as string
     """
     model = model or OLLAMA_MODEL
     
@@ -336,9 +407,18 @@ def call_llm(prompt: str, model: Optional[str] = None, session_id: Optional[str]
         return f"Fout: {str(e)}"
 
 def call_llm_stream(prompt: str, model: Optional[str] = None, session_id: Optional[str] = None):
-    """
-    Stuurt een prompt naar Ollama Cloud API met streaming.
-    Yieldt response chunks één voor één.
+    """Query Ollama LLM with streaming response chunks.
+    
+    Streams LLM response tokens as they arrive from Ollama Cloud API.
+    Uses conversation context for multi-turn awareness.
+    
+    Args:
+        prompt: Message/prompt to send to LLM
+        model: Ollama model name; uses DEFAULT_OLLAMA_MODEL if None
+        session_id: Session ID for context; creates new if None
+    
+    Yields:
+        Response text chunks as they arrive from LLM
     """
     model = model or OLLAMA_MODEL
     
@@ -368,7 +448,17 @@ def call_llm_stream(prompt: str, model: Optional[str] = None, session_id: Option
         yield f"Fout: {str(e)}"
 
 async def send_command_to_device(device_id: str, command: Dict[str, Any]) -> bool:
-    """Send a command to a specific device via WebSocket."""
+    """Send a command to a specific device via WebSocket.
+    
+    Used by tool router to send tool execution requests to connected devices.
+    
+    Args:
+        device_id: Target device identifier
+        command: Command dict with type and parameters
+    
+    Returns:
+        True if sent successfully, False if device offline or send failed
+    """
     if device_id in clients:
         try:
             await clients[device_id].send_text(json.dumps(command))
@@ -379,7 +469,13 @@ async def send_command_to_device(device_id: str, command: Dict[str, Any]) -> boo
     return False
 
 async def send_command_to_all(command: Dict[str, Any]) -> None:
-    """Send a command to all connected devices."""
+    """Broadcast a command to all connected devices.
+    
+    Sends command to every active WebSocket connection. Logs failures silently.
+    
+    Args:
+        command: Command dict to broadcast
+    """
     for device_id, client in clients.items():
         try:
             await client.send_text(json.dumps(command))
@@ -573,8 +669,18 @@ async def websocket_endpoint(websocket: WebSocket):
         db.close()
 
 @app.post("/test/tool")
-async def test_tool_endpoint(request: ToolTestRequest):
-    """Test endpoint to trigger tool execution on a device"""
+async def test_tool_endpoint(request: ToolTestRequest) -> Dict[str, Any]:
+    """HTTP endpoint to manually trigger tool execution on a device.
+    
+    Used by test scripts to execute tools without WebSocket connection.
+    Waits for device to connect then sends tool request.
+    
+    Args:
+        request: ToolTestRequest with device_id, tool name, and parameters
+    
+    Returns:
+        Response dict with success status and request_id for result polling
+    """
     
     # Find device WebSocket
     if request.device_id not in clients:
@@ -606,8 +712,12 @@ async def test_tool_endpoint(request: ToolTestRequest):
     }
 
 @app.get("/test/devices")
-async def list_connected_devices():
-    """List all currently connected devices"""
+async def list_connected_devices() -> Dict[str, Any]:
+    """HTTP endpoint to list all currently connected devices.
+    
+    Returns:
+        Dict with success status, device list, and count
+    """
     devices = []
     for device_id in clients.keys():
         devices.append({
