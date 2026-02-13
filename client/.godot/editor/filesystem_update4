@@ -4,3 +4,7 @@ res://tools/file_system_tools.gd
 res://main_ui.gd
 res://tools/device_tools.gd
 res://tools/tool_registry.gd
+res://dashboard.gd
+res://metrics_panel.gd
+res://device_list_panel.gd
+res://activity_log_panel.gd
