@@ -106,27 +106,27 @@ func _handle_server_message(message: Dictionary) -> void:
 			# Backend requests tool execution
 			var tool_name = message.get("tool_name")
 			var parameters = message.get("parameters", {})
-			var execution_id = message.get("execution_id")
+			var request_id = message.get("request_id")
 			
 			print("Tool execution request: ", tool_name)
+			print("Parameters: ", parameters)
 			
 			# Execute tool
-			var result = tool_registry.execute_tool(tool_name, parameters, execution_id)
+			var result = tool_registry.execute_tool(tool_name, parameters)
 			
 			# Send result back to backend
 			var tool_result = {
 				"type": "tool_result",
-				"execution_id": execution_id,
+				"request_id": request_id,
 				"success": result.get("success", false),
-				"result": result.get("result"),
-				"error": result.get("error"),
-				"duration_ms": result.get("duration_ms", 0)
+				"result": result,
+				"error": result.get("error")
 			}
 			
 			ws_client.send_text(JSON.stringify(tool_result))
 			
 			# Emit signal for UI
-			tool_executed.emit(tool_name, result.get("success", false), result.get("result"))
+			tool_executed.emit(tool_name, result.get("success", false), result)
 		
 		_:
 			if message.get("type"):

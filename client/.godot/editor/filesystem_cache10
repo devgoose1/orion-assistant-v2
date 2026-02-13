@@ -1,3 +1,14 @@
 63f7b34db8d8cdea90c76aacccf841ec
-::res://::1770925084
+::res://::1770973585
 icon.svg::CompressedTexture2D::485867802669102246::1770925077::1770925085::1::::<><><>0<>0<>80f235a2b6d3c59d5e0418f5c04af19c<>res://.godot/imported/icon.svg-218a8f2b3041327d8a5756f3a245f83b.ctex::
+main_ui.gd::GDScript::6641953859198085018::1770934015::0::1::::<>Control<><>0<>0<><>::
+main_ui.tscn::PackedScene::6850047949569363010::1770933793::0::1::::<><><>0<>0<><>::uid://c1voalfwgo4kc::::res://main_ui.gd
+test_scene.gd::GDScript::202322301786444134::1770929815::0::1::::<>Node<><>0<>0<><>::
+test_scene.tscn::PackedScene::1240483783129698996::1770932641::0::1::::<><><>0<>0<><>::uid://c5aho41r0aly::::res://test_scene.gd<>uid://b0o4rc062ehmg::::res://websocket.gd
+websocket.gd::GDScript::4171834359598913834::1770933997::0::1::::<>Node<><>0<>0<><>::
+websocket.tscn::PackedScene::1311582745823242896::1770928275::0::1::::<><><>0<>0<><>::uid://cgf5jv2840vqu::::res://websocket.gd
+::res://tools/::1770934270
+application_tools.gd::GDScript::1723764989828597197::1770934269::0::1::::ApplicationTools<>RefCounted<><>0<>0<><>::
+device_tools.gd::GDScript::7596520555545277570::1770934269::0::1::::DeviceTools<>RefCounted<><>0<>0<><>::
+file_system_tools.gd::GDScript::7864321569439683502::1770934269::0::1::::FileSystemTools<>RefCounted<><>0<>0<><>::
+tool_registry.gd::GDScript::265108264144868759::1770934287::0::1::::ToolRegistry<>Node<><>0<>0<><>::

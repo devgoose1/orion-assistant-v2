@@ -1,8 +1,10 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import asyncio
 import json
 import os
+import time
 from typing import Optional
 from dotenv import load_dotenv
 from ollama import Client
@@ -22,6 +24,12 @@ from tools.registry import get_registry
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Pydantic models
+class ToolTestRequest(BaseModel):
+    device_id: str
+    tool: str
+    params: dict
 
 app = FastAPI()
 
@@ -270,7 +278,8 @@ async def websocket_endpoint(websocket: WebSocket):
             
             # Handle tool execution results from devices
             elif event_type == "tool_result":
-                execution_id = event.get("execution_id")
+                # Support both execution_id (from router) and request_id (from test endpoint)
+                execution_id = event.get("execution_id") or event.get("request_id")
                 success = event.get("success", False)
                 result = event.get("result")
                 error = event.get("error")
@@ -278,16 +287,21 @@ async def websocket_endpoint(websocket: WebSocket):
                 print(f"✓ Tool Result Received:")
                 print(f"   Execution ID: {execution_id}")
                 print(f"   Success: {success}")
+                if result:
+                    print(f"   Result: {result}")
+                if error:
+                    print(f"   Error: {error}")
                 
-                # Update execution log
-                router = get_router()
-                router.handle_tool_result(
-                    db=db,
-                    execution_id=execution_id,
-                    success=success,
-                    result=result,
-                    error=error
-                )
+                # Update execution log if execution_id exists
+                if execution_id:
+                    router = get_router()
+                    router.handle_tool_result(
+                        db=db,
+                        execution_id=execution_id,
+                        success=success,
+                        result=result,
+                        error=error
+                    )
             
             # Handle request for available tools
             elif event_type == "get_tools":
@@ -313,6 +327,55 @@ async def websocket_endpoint(websocket: WebSocket):
             del clients[device_id]
     finally:
         db.close()
+
+@app.post("/test/tool")
+async def test_tool_endpoint(request: ToolTestRequest):
+    """Test endpoint to trigger tool execution on a device"""
+    
+    # Find device WebSocket
+    if request.device_id not in clients:
+        return {
+            "success": False,
+            "error": f"Device {request.device_id} not connected"
+        }
+    
+    target_ws = clients[request.device_id]
+    
+    # Generate request
+    request_id = f"test_{int(time.time())}"
+    message = {
+        "type": "tool_execute",
+        "request_id": request_id,
+        "tool_name": request.tool,
+        "parameters": request.params
+    }
+    
+    print(f"📤 Test tool execution: {message}")
+    await target_ws.send_json(message)
+    
+    return {
+        "success": True,
+        "request_id": request_id,
+        "device_id": request.device_id,
+        "tool": request.tool,
+        "message": "Tool execution triggered"
+    }
+
+@app.get("/test/devices")
+async def list_connected_devices():
+    """List all currently connected devices"""
+    devices = []
+    for device_id in clients.keys():
+        devices.append({
+            "device_id": device_id,
+            "connected": True
+        })
+    
+    return {
+        "success": True,
+        "devices": devices,
+        "count": len(devices)
+    }
 
 if __name__ == "__main__":
     import uvicorn

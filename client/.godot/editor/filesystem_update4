@@ -1,11 +1,3 @@
-res://websocket.gd
-res://test_scene.gd
-res://websocket.tscn
-res://test_scene.tscn
-res://main_ui.gd
 res://main_ui.tscn
-res://tools/base_tool.gd
-res://tools/application_tools.gd
+res://websocket.gd
 res://tools/file_system_tools.gd
-res://tools/device_tools.gd
-res://tools/tool_registry.gd
