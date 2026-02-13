@@ -4,36 +4,43 @@ from pydantic import BaseModel
 import asyncio
 import json
 import os
-import time
-from typing import Optional
+from typing import Optional, Dict, Any, Tuple
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from ollama import Client
 from datetime import datetime
 
-# Database imports
+# Local imports
 from database import init_db, SessionLocal
 from services.device_service import (
     create_device, get_device, update_heartbeat, 
     check_device_permission, check_path_allowed
 )
-from services.tool_execution_service import log_tool_execution
-
-# Tool system imports
 from tools.router import get_router
 from tools.registry import get_registry
 from tools.llm_integration import (
     generate_system_prompt,
-    parse_tool_call_from_response,
     extract_text_and_tool_call,
     format_tool_result_for_llm
+)
+from config import (
+    DEFAULT_OLLAMA_MODEL,
+    DEFAULT_OLLAMA_URL,
+    DEFAULT_ALLOWED_TOOLS,
+    DEFAULT_ALLOWED_PATHS,
+    DEFAULT_ALLOWED_APPS,
+    CONVERSATION_HISTORY_LIMIT,
+    MAX_TOOL_ITERATIONS,
+    TOOL_EXECUTION_TIMEOUT,
+    TOOL_HEURISTIC_PHRASES,
 )
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Pydantic models
+# Type models
 class ToolTestRequest(BaseModel):
+    """HTTP request to execute a tool on a device."""
     device_id: str
     tool: str
     params: dict
@@ -53,6 +60,100 @@ app = FastAPI(lifespan=lifespan)
 # Track background tasks per device to avoid blocking the receive loop
 llm_tasks = {}  # device_id -> asyncio.Task
 
+async def _process_tool_call(
+    websocket: WebSocket,
+    tool_call: Dict[str, Any],
+    device_id: Optional[str],
+    session_id: str,
+    db: Any
+) -> Tuple[bool, Optional[str]]:
+    """
+    Process a single tool call and return whether to continue the loop and next prompt.
+    
+    Returns: (should_continue, next_prompt_or_none)
+    - should_continue: True to continue the loop, False to break
+    - next_prompt_or_none: Text to use as next prompt if continuing, None if breaking
+    """
+    print(f"   🔧 Tool call detected: {tool_call['tool_name']}")
+    
+    # Check device_id is available
+    if not device_id:
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "error": "Device not registered"
+        }))
+        return (False, None)
+    
+    # Execute tool
+    router = get_router()
+    result = await router.execute_tool(
+        db=db,
+        device_id=device_id,
+        tool_name=tool_call['tool_name'],
+        parameters=tool_call['parameters'],
+        websocket_send_func=send_command_to_device
+    )
+    print(f"   🧾 Router result: {result}")
+    if not result.get("success"):
+        error_message = result.get("message") or result.get("error") or "Tool execution failed"
+        tool_result_text = format_tool_result_for_llm(
+            tool_call['tool_name'],
+            False,
+            None,
+            error_message
+        )
+        add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
+        return (True, "Please provide a natural language response based on the tool result above.")
+    
+    # Get the execution/request ID
+    request_id = result.get('execution_id')
+    if not request_id:
+        print(f"   ⚠️  No execution ID returned from router")
+        tool_result_text = format_tool_result_for_llm(
+            tool_call['tool_name'],
+            False,
+            None,
+            "No execution ID returned from router"
+        )
+        add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
+        return (True, "Please provide a natural language response based on the tool result above.")
+    
+    # Create event to wait for tool result
+    tool_event = asyncio.Event()
+    tool_executions[request_id] = {
+        "event": tool_event,
+        "result": None
+    }
+    
+    # Wait for tool result with timeout
+    print(f"   ⏳ Waiting for tool result (request_id: {request_id})...")
+    try:
+        await asyncio.wait_for(tool_event.wait(), timeout=TOOL_EXECUTION_TIMEOUT)
+        actual_result = tool_executions[request_id]["result"]
+        print(f"   ✓ Tool result received!")
+    except asyncio.TimeoutError:
+        print(f"   ⚠️  Timeout waiting for tool result")
+        actual_result = {
+            "success": False,
+            "error": "Tool execution timeout"
+        }
+    finally:
+        # Clean up
+        if request_id in tool_executions:
+            del tool_executions[request_id]
+    
+    # Format tool result for LLM
+    tool_result_text = format_tool_result_for_llm(
+        tool_call['tool_name'],
+        actual_result['success'],
+        actual_result.get('result'),
+        actual_result.get('error')
+    )
+    
+    # Add tool result to conversation and continue
+    add_message_to_conversation(session_id, "user", f"[TOOL RESULT]\n{tool_result_text}")
+    return (True, "Please provide a natural language response based on the tool result above.")
+
 async def handle_llm_request(websocket: WebSocket, event: dict, device_id: Optional[str]):
     """Process an LLM request without blocking the websocket receive loop."""
     db = SessionLocal()
@@ -70,11 +171,10 @@ async def handle_llm_request(websocket: WebSocket, event: dict, device_id: Optio
         print(f"   Stream: {stream}")
         
         # Tool-aware execution loop
-        max_tool_iterations = 5  # Prevent infinite loops
         iteration = 0
         current_prompt = prompt
         
-        while iteration < max_tool_iterations:
+        while iteration < MAX_TOOL_ITERATIONS:
             iteration += 1
             
             if stream:
@@ -162,10 +262,10 @@ async def handle_llm_request(websocket: WebSocket, event: dict, device_id: Optio
                         "result": None
                     }
                     
-                    # Wait for tool result (with 10 second timeout)
+                    # Wait for tool result with timeout
                     print(f"   ⏳ Waiting for tool result (request_id: {request_id})...")
                     try:
-                        await asyncio.wait_for(tool_event.wait(), timeout=10.0)
+                        await asyncio.wait_for(tool_event.wait(), timeout=TOOL_EXECUTION_TIMEOUT)
                         actual_result = tool_executions[request_id]["result"]
                         print(f"   ✓ Tool result received!")
                     except asyncio.TimeoutError:
@@ -266,10 +366,10 @@ async def handle_llm_request(websocket: WebSocket, event: dict, device_id: Optio
                         "result": None
                     }
                     
-                    # Wait for tool result (with 10 second timeout)
+                    # Wait for tool result with timeout
                     print(f"   ⏳ Waiting for tool result (request_id: {request_id})...")
                     try:
-                        await asyncio.wait_for(tool_event.wait(), timeout=10.0)
+                        await asyncio.wait_for(tool_event.wait(), timeout=TOOL_EXECUTION_TIMEOUT)
                         actual_result = tool_executions[request_id]["result"]
                         print(f"   ✓ Tool result received!")
                     except asyncio.TimeoutError:
@@ -305,8 +405,8 @@ async def handle_llm_request(websocket: WebSocket, event: dict, device_id: Optio
                     }))
                     break
         
-        if iteration >= max_tool_iterations:
-            print(f"   ⚠️  Max tool iterations reached")
+        if iteration >= MAX_TOOL_ITERATIONS:
+            print(f"   ⚠️  Max tool iterations reached ({MAX_TOOL_ITERATIONS})")
             await websocket.send_text(json.dumps({
                 "type": "llm_response",
                 "response": "I apologize, but I've reached the maximum number of tool execution attempts. Please try rephrasing your request."
@@ -323,10 +423,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Ollama Cloud configuratie
-OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "https://ollama.com")
+# Environment configuration
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", DEFAULT_OLLAMA_URL)
 OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:120b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
 
 print(f"🔧 Backend configuratie:")
 print(f"   API URL: {OLLAMA_API_URL}")
@@ -349,25 +449,10 @@ conversations = {}  # session_id -> [{"role": "system|user|assistant", "content"
 tool_executions = {}  # request_id -> {"event": Event, "result": dict}
 
 def requires_tool_for_prompt(prompt: str) -> bool:
-    """Heuristic to decide if the user request likely requires a tool."""
+    """Check if user prompt likely requires a tool to execute."""
     lowered = prompt.lower()
-    return any(phrase in lowered for phrase in [
-        "create a folder",
-        "create folder",
-        "make a folder",
-        "create directory",
-        "make directory",
-        "operating system",
-        "what os",
-        "which os",
-        "os am i",
-        "open app",
-        "open application",
-        "close app",
-        "close application",
-        "find files",
-        "search files"
-    ])
+    return any(phrase in lowered for phrase in TOOL_HEURISTIC_PHRASES)
+
 def get_or_create_conversation(session_id: str) -> list:
     """Get or create a conversation context for a session."""
     if session_id not in conversations:
@@ -382,10 +467,10 @@ def add_message_to_conversation(session_id: str, role: str, content: str):
     conversation = get_or_create_conversation(session_id)
     conversation.append({"role": role, "content": content})
     
-    # Keep conversation history reasonable (last 20 messages + system prompt)
-    if len(conversation) > 21:
-        # Keep system prompt (first message) and last 20 messages
-        conversations[session_id] = [conversation[0]] + conversation[-20:]
+    # Keep conversation history reasonable (system prompt + limit)
+    if len(conversation) > CONVERSATION_HISTORY_LIMIT + 1:
+        conversations[session_id] = [conversation[0]] + conversation[-(CONVERSATION_HISTORY_LIMIT):]
+
 
 def call_llm(prompt: str, model: Optional[str] = None, session_id: Optional[str] = None):
     """
@@ -447,23 +532,24 @@ def call_llm_stream(prompt: str, model: Optional[str] = None, session_id: Option
         print(f"Fout bij streaming LLM call: {e}")
         yield f"Fout: {str(e)}"
 
-async def send_command_to_device(device_id: str, command: dict):
-    """Stuurt een command naar een specifieke device."""
+async def send_command_to_device(device_id: str, command: Dict[str, Any]) -> bool:
+    """Send a command to a specific device via WebSocket."""
     if device_id in clients:
         try:
             await clients[device_id].send_text(json.dumps(command))
             return True
-        except:
+        except Exception as e:
+            print(f"Error sending command to {device_id}: {e}")
             return False
     return False
 
-async def send_command_to_all(command: dict):
-    """Stuurt een command naar alle verbonden clients."""
+async def send_command_to_all(command: Dict[str, Any]) -> None:
+    """Send a command to all connected devices."""
     for device_id, client in clients.items():
         try:
             await client.send_text(json.dumps(command))
-        except:
-            pass
+        except Exception as e:
+            print(f"Error sending to {device_id}: {e}")
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -506,21 +592,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         'ram_gb': event.get('metadata', {}).get('ram_gb'),
                         'disk_gb': event.get('metadata', {}).get('disk_gb'),
                         # Default permissions
-                        'allowed_tools': [
-                            'create_directory',
-                            'delete_directory',
-                            'search_files',
-                            'list_directory',
-                            'read_text_file',
-                            'write_text_file',
-                            'copy_file',
-                            'move_file',
-                            'delete_file',
-                            'open_app',
-                            'get_device_info'
-                        ],
-                        'allowed_paths': ['C:/Users', 'D:/Projects'] if event.get('os_type') == 'Windows' else ['/home'],
-                        'allowed_apps': ['chrome', 'firefox', 'code', 'explorer', 'terminal'],
+                        'allowed_tools': DEFAULT_ALLOWED_TOOLS,
+                        'allowed_paths': DEFAULT_ALLOWED_PATHS,
+                        'allowed_apps': DEFAULT_ALLOWED_APPS,
                         'status': 'online',
                         'last_heartbeat': datetime.now()
                     }
