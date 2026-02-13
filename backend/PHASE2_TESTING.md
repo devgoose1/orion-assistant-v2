@@ -207,6 +207,24 @@ Assistant: I've created the folder AITest on your desktop.
 - Conversation context in `conversations` dictionary
 - Session ID consistency
 
+### Tool result times out even though device replied
+
+**Cause:** WebSocket receive loop was blocked by the LLM tool loop.
+
+**Fix:** LLM processing now runs in a background task with its own DB session, so tool results are handled immediately.
+
+### LLM responds without tool_call JSON
+
+**Cause:** Model occasionally answers with text instead of a tool call.
+
+**Fix:** One-time strict retry forces a JSON-only tool response when the prompt requires a tool.
+
+### Permission denied for allowed paths on Windows
+
+**Cause:** Mixed path separators or casing mismatches caused false negatives.
+
+**Fix:** Path normalization now handles separators and casing consistently.
+
 ## 📊 Success Criteria
 
 ✅ **Phase 2 Complete When:**
@@ -217,6 +235,13 @@ Assistant: I've created the folder AITest on your desktop.
 - [ ] Conversation context maintains history
 - [ ] No errors in streaming with tool calls
 - [ ] System remains stable after multiple tool executions
+
+## ✅ Recent Verification (2026-02-13)
+
+- LLM calls `get_device_info` and receives tool result without timeouts
+- Tool results immediately trigger the waiting event
+- Permission checks accept Windows paths with backslashes
+- LLM retries with strict JSON when it fails to emit a tool_call
 
 ## 🎓 Key Learnings
 

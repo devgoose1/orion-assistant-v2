@@ -98,19 +98,26 @@ python main.py
 - [x] Streaming responses
 - [x] Basic client-server connection
 
-### 🔧 Phase 1: Core System (IN PROGRESS)
+### 🔧 Phase 1: Core System (COMPLETED)
 
-- [ ] Tool/Function calling system
-- [ ] Device registration & identification
-- [ ] Permission & safety layer
-- [ ] Basic file operations
-- [ ] Application control
+- [x] Tool/Function calling system
+- [x] Device registration & identification
+- [x] Permission & safety layer
+- [x] Basic file operations
+- [x] Application control
 
-### 📋 Phase 2: Multi-Device Control
+### 📋 Phase 2: LLM Tool Calling Integration (COMPLETED)
+
+- [x] Tool schema in system prompt
+- [x] Tool call parsing and validation
+- [x] Tool execution loop with result handling
+- [x] Streaming + tool calling support
+- [x] Conversation context management
+
+### 🧭 Phase 3: Multi-Device Control (NEXT)
 
 - [ ] File search across devices
 - [ ] Device event monitoring
-- [ ] Context & memory database
 - [ ] Cross-device coordination
 
 ### 🏠 Phase 3: Homelab Integration
@@ -160,7 +167,7 @@ Zie de `docs/` folder voor gedetailleerde documentatie:
 - **Uvicorn** - ASGI server
 - **Ollama SDK** - LLM client library
 - **WebSockets** - Real-time communication
-- **SQLAlchemy** (toekomstig) - ORM
+- **SQLAlchemy** - ORM
 - **Python-dotenv** - Environment configuration
 
 ### Client
@@ -173,7 +180,8 @@ Zie de `docs/` folder voor gedetailleerde documentatie:
 
 - **Ollama Cloud** - LLM inference (gratis tier)
 - **Docker** (optioneel) - Container deployment
-- **PostgreSQL** (toekomstig) - Database
+- **SQLite** - Database (current)
+- **PostgreSQL** (toekomstig) - Production database
 
 ---
 

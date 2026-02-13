@@ -113,6 +113,7 @@ CRITICAL RULES FOR TOOL USAGE:
 2. If you need information to complete a task, use get_device_info to gather it automatically
 3. The get_device_info tool returns desktop_path, home_directory, and other useful paths - use these directly
 4. ALWAYS respond with a tool call JSON when a tool is needed - do not ask the user for paths or details you can discover yourself
+5. For any OS/device questions (e.g., "What operating system am I running?"), call get_device_info first
 
 EXAMPLE WORKFLOW for "Create a folder called TestFolder on my desktop":
 Step 1 - First request:
@@ -283,6 +284,11 @@ def format_tool_result_for_llm(tool_name: str, success: bool, result: Any, error
         A formatted string describing the tool result
     """
     if success:
+        if tool_name == "get_device_info" and isinstance(result, dict):
+            info = result.get("info") if isinstance(result.get("info"), dict) else None
+            if info and isinstance(info.get("os_name"), str) and isinstance(info.get("os_version"), str):
+                if info["os_name"].lower().startswith("windows"):
+                    info["os_friendly_name"] = _windows_friendly_name(info["os_version"])
         result_text = f"Tool '{tool_name}' executed successfully.\n"
         if result:
             result_text += f"Result: {json.dumps(result, indent=2)}"
@@ -292,6 +298,27 @@ def format_tool_result_for_llm(tool_name: str, success: bool, result: Any, error
         if error:
             error_text += f"Error: {error}"
         return error_text
+
+
+def _windows_friendly_name(os_version: str) -> str:
+    """Return a friendly Windows release name based on build number."""
+    build = _parse_windows_build(os_version)
+    if build is None:
+        return "Windows (version unknown)"
+    if build >= 22000:
+        return f"Windows 11 (build {build})"
+    return f"Windows 10 (build {build})"
+
+
+def _parse_windows_build(os_version: str) -> Optional[int]:
+    """Extract build number from a version string like '10.0.26200'."""
+    parts = os_version.split(".")
+    if not parts:
+        return None
+    try:
+        return int(parts[-1])
+    except ValueError:
+        return None
 
 
 if __name__ == "__main__":

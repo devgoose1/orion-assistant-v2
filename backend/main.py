@@ -6,6 +6,7 @@ import json
 import os
 import time
 from typing import Optional
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from ollama import Client
 from datetime import datetime
@@ -37,7 +38,17 @@ class ToolTestRequest(BaseModel):
     tool: str
     params: dict
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    # Initialize tool registry
+    registry = get_registry()
+    print(f"✓ Tool registry initialized with {len(registry.list_all())} tools")
+    print("✓ Application started")
+    yield
+    print("✓ Application shutdown")
+
+app = FastAPI(lifespan=lifespan)
 
 # Track background tasks per device to avoid blocking the receive loop
 llm_tasks = {}  # device_id -> asyncio.Task
@@ -303,19 +314,6 @@ async def handle_llm_request(websocket: WebSocket, event: dict, device_id: Optio
     finally:
         db.close()
 
-# Initialize database and tools on startup
-@app.on_event("startup")
-async def startup_event():
-    init_db()
-    # Initialize tool registry
-    registry = get_registry()
-    print(f"✓ Tool registry initialized with {len(registry.list_all())} tools")
-    print("✓ Application started")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    print("✓ Application shutdown")
-
 # CORS setup voor Godot client
 app.add_middleware(
     CORSMiddleware,
@@ -359,6 +357,10 @@ def requires_tool_for_prompt(prompt: str) -> bool:
         "make a folder",
         "create directory",
         "make directory",
+        "operating system",
+        "what os",
+        "which os",
+        "os am i",
         "open app",
         "open application",
         "close app",
