@@ -57,11 +57,12 @@ class ToolRouter:
                     'device_id': device_id,
                     'tool_name': tool_name,
                     'parameters': validated_params,
-                    'success': None,
+                    'success': False,  # Will be updated when result comes back
                     'executed_at': datetime.now()
                 }
             )
             execution_id = execution.id
+            print(f"   📝 Created execution log with ID: {execution_id}")
             
             # Route to device
             command = {

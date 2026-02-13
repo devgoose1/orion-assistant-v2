@@ -8,12 +8,25 @@ static func get_device_info_tool() -> Dictionary:
 		"execute": func(params: Dictionary) -> Dictionary:
 			var info_type = params.get("info_type", "all")
 			
+			# Get user home directory
+			var home_dir = OS.get_environment("USERPROFILE") if OS.get_name() == "Windows" else OS.get_environment("HOME")
+			
+			# Construct common paths
+			var desktop_path = ""
+			if OS.get_name() == "Windows":
+				desktop_path = home_dir + "/Desktop"
+			else:
+				desktop_path = home_dir + "/Desktop"
+			
 			var info = {
 				"os_name": OS.get_name(),
 				"os_version": OS.get_version(),
 				"processor_count": OS.get_processor_count(),
 				"processor_name": OS.get_processor_name(),
-				"video_adapter_driver_info": OS.get_video_adapter_driver_info()
+				"video_adapter_driver_info": OS.get_video_adapter_driver_info(),
+				"home_directory": home_dir,
+				"desktop_path": desktop_path,
+				"user_data_dir": OS.get_user_data_dir()
 			}
 			
 			if info_type != "all":

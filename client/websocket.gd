@@ -14,6 +14,7 @@ signal llm_chunk_received(chunk: String)
 signal llm_response_complete(full_response: String)
 signal device_registered(perms: Dictionary)
 signal tool_executed(tool_name: String, success: bool, result: Variant)
+signal tool_executing(tool_name: String, parameters: Dictionary)
 
 func _ready() -> void:
 	# Initialize tool registry
@@ -106,10 +107,12 @@ func _handle_server_message(message: Dictionary) -> void:
 			# Backend requests tool execution
 			var tool_name = message.get("tool_name")
 			var parameters = message.get("parameters", {})
-			var request_id = message.get("request_id")
+			# Support both request_id (test endpoint) and execution_id (LLM tool calling)
+			var exec_id = message.get("execution_id", message.get("request_id", ""))
 			
 			print("Tool execution request: ", tool_name)
 			print("Parameters: ", parameters)
+			print("Execution ID: ", exec_id)
 			
 			# Execute tool
 			var result = tool_registry.execute_tool(tool_name, parameters)
@@ -117,7 +120,8 @@ func _handle_server_message(message: Dictionary) -> void:
 			# Send result back to backend
 			var tool_result = {
 				"type": "tool_result",
-				"request_id": request_id,
+				"execution_id": exec_id,  # Use execution_id as primary
+				"request_id": exec_id,    # Keep for backward compatibility
 				"success": result.get("success", false),
 				"result": result,
 				"error": result.get("error")
@@ -127,6 +131,14 @@ func _handle_server_message(message: Dictionary) -> void:
 			
 			# Emit signal for UI
 			tool_executed.emit(tool_name, result.get("success", false), result)
+		
+		"tool_executing":
+			# LLM is executing a tool - notify UI
+			var tool_name = message.get("tool_name")
+			var parameters = message.get("parameters", {})
+			
+			print("LLM is executing tool: ", tool_name)
+			tool_executing.emit(tool_name, parameters)
 		
 		_:
 			if message.get("type"):

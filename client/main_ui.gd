@@ -25,6 +25,7 @@ func _ready() -> void:
 	websocket.llm_response_complete.connect(_on_llm_complete)
 	websocket.device_registered.connect(_on_device_registered)
 	websocket.tool_executed.connect(_on_tool_executed)
+	websocket.tool_executing.connect(_on_tool_executing)
 	
 	# Update connection status
 	_update_connection_status()
@@ -178,8 +179,13 @@ func _on_llm_complete(_full_response: String) -> void:
 func _on_device_registered(_permissions: Dictionary) -> void:
 	_add_system_message("Device registered successfully")
 
+func _on_tool_executing(tool_name: String, parameters: Dictionary) -> void:
+	# Show that LLM is executing a tool
+	var params_str = JSON.stringify(parameters)
+	_add_system_message("🔧 Executing tool: " + tool_name + " with params: " + params_str)
+
 func _on_tool_executed(tool_name: String, success: bool, result: Variant) -> void:
-	# Show tool execution in chat
+	# Show tool execution result in chat
 	if success:
 		var result_text = "Tool executed: " + tool_name
 		if result != null:

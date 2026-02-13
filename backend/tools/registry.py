@@ -216,7 +216,7 @@ class ToolRegistry:
         # Device Information Tools
         self.register(Tool(
             name="get_device_info",
-            description="Get information about the device (OS, hardware, etc.)",
+            description="Get information about the device including OS name, version, hardware specs. Use this to determine the operating system when you need to construct file paths (e.g., finding the Desktop folder location).",
             category=ToolCategory.DEVICE,
             parameters=[
                 ToolParameter(
