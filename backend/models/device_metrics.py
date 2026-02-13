@@ -43,5 +43,5 @@ class DeviceMetrics(Base):
             'disk_percent': self.disk_percent,
             'process_count': self.process_count,
             'thread_count': self.thread_count,
-            'timestamp': self.timestamp.isoformat() if self.timestamp else None
+            'timestamp': self.timestamp.isoformat() if self.timestamp is not None else None
         }

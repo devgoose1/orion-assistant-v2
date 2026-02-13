@@ -4,7 +4,7 @@ Dashboard service - provides monitoring and metrics data
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, and_
+from sqlalchemy import desc
 
 from models.device import Device
 from models.device_metrics import DeviceMetrics
@@ -25,7 +25,7 @@ def get_dashboard_overview(db: Session) -> Dict[str, Any]:
         - devices: list of device summaries
     """
     all_devices = db.query(Device).all()
-    online = sum(1 for d in all_devices if d.status == 'online')
+    online = db.query(Device).filter(Device.status == 'online').count()
     
     # Count recent executions (last 24 hours)
     yesterday = datetime.utcnow() - timedelta(hours=24)
@@ -45,7 +45,7 @@ def get_dashboard_overview(db: Session) -> Dict[str, Any]:
             'hostname': device.hostname,
             'os_type': device.os_type,
             'status': device.status,
-            'last_heartbeat': device.last_heartbeat.isoformat() if device.last_heartbeat else None,
+            'last_heartbeat': device.last_heartbeat.isoformat() if device.last_heartbeat is not None else None,
             'metrics': latest_metrics.to_dict() if latest_metrics else None
         })
     
@@ -59,18 +59,18 @@ def get_dashboard_overview(db: Session) -> Dict[str, Any]:
     }
 
 
-def get_device_details(device_id: str, db: Session) -> Dict[str, Any]:
+def get_device_details(device_id: str, db: Session) -> Optional[Dict[str, Any]]:
     """Get detailed information about a specific device.
     
     Returns:
-        Dict with:
+        Dict with device info and metrics, or None if device not found:
         - device info
         - current metrics
         - recent execution history
         - conversation sessions
     """
     device = db.query(Device).filter(Device.device_id == device_id).first()
-    if not device:
+    if device is None:
         return None
     
     # Get latest metrics
@@ -90,7 +90,7 @@ def get_device_details(device_id: str, db: Session) -> Dict[str, Any]:
     
     return {
         'device': device.to_dict(),
-        'current_metrics': latest_metrics.to_dict() if latest_metrics else None,
+        'current_metrics': latest_metrics.to_dict() if latest_metrics is not None else None,
         'recent_executions': [
             {
                 'tool_name': ex.tool_name,
